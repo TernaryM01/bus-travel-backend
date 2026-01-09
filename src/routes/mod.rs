@@ -27,6 +27,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/journeys/{id}", put(admin::update_journey))
         .route("/journeys/{id}", delete(admin::delete_journey))
         .route("/journeys/{id}/assign-driver", post(admin::assign_driver))
+        .route("/journeys/{id}/passengers", get(admin::journey_passengers))
         .route("/drivers", get(admin::list_drivers))
         .route("/drivers", post(admin::create_driver))
         .route("/drivers/{id}", delete(admin::delete_driver))

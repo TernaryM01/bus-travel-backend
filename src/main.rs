@@ -70,9 +70,7 @@ async fn main() {
     let app = routes::create_router(state)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
-        .layer(GovernorLayer {
-            config: governor_config,
-        });
+        .layer(GovernorLayer::new(governor_config));
 
     // Start server with socket address for rate limiting
     let addr: SocketAddr = config.server_addr().parse().expect("Invalid address");

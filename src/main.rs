@@ -60,8 +60,8 @@ async fn main() {
     // Configure rate limiting: 100 requests per 60 seconds per IP
     let governor_config = Arc::new(
         GovernorConfigBuilder::default()
-            .per_second(60)
-            .burst_size(100)
+            .per_millisecond(600) // One token every 600ms (100 per minute)
+            .burst_size(100)      // Max capacity of the "window"
             .finish()
             .unwrap(),
     );

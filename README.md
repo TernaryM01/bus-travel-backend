@@ -1,11 +1,11 @@
 # Bus Travel Backend
 
-A Rust backend for a bus travel booking system between Jakarta and Bandung, built with **Axum** and **SeaORM**.
+A Rust backend for a bus travel booking system between Kupang and Soe, built with **Axum** and **SeaORM**.
 
 ## Features
 
 - **Role-based Access Control**: Admin, Driver, and Traveller roles with JWT authentication
-- **Journey Management**: Admins create bus journeys between Jakarta ↔ Bandung
+- **Journey Management**: Admins create bus journeys between Kupang ↔ Soe
 - **Booking System**: Travellers book seats and specify pickup points within allowed radius
 - **Driver Dashboard**: Drivers view assigned journeys and passenger pickup locations
 - **Rate Limiting**: 100 requests per 60 seconds per IP address
@@ -102,8 +102,8 @@ See [API.md](./API.md) for complete API documentation.
 
 | City | Center Coordinates | Pickup Radius |
 |------|-------------------|---------------|
-| Jakarta | -6.2088, 106.8456 | 10 km |
-| Bandung | -6.9175, 107.6191 | 7 km |
+| Kupang | -10.1836, 123.6257 | 5 km |
+| Soe | -9.8684, 124.2861 | 2 km |
 
 ## License
 

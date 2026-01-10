@@ -56,7 +56,7 @@ type UserRole = "admin" | "driver" | "traveller";
 ```typescript
 interface City {
   id: number;
-  name: string;           // "Jakarta" or "Bandung"
+  name: string;           // "Kupang" or "Bandung"
   center_lat: number;     // Latitude of city center
   center_lng: number;     // Longitude of city center
   pickup_radius_km: number; // Max pickup distance from center
@@ -188,7 +188,7 @@ GET /api/journeys
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "origin_city": {
       "id": 1,
-      "name": "Jakarta",
+      "name": "Kupang",
       "center_lat": -6.2088,
       "center_lng": 106.8456,
       "pickup_radius_km": 10.0
@@ -230,7 +230,7 @@ GET /api/cities
 [
   {
     "id": 1,
-    "name": "Jakarta",
+    "name": "Kupang",
     "center_lat": -6.2088,
     "center_lng": 106.8456,
     "pickup_radius_km": 10.0
@@ -272,7 +272,7 @@ POST /api/bookings
 {
   "id": "660e8400-e29b-41d4-a716-446655440001",
   "journey_id": "550e8400-e29b-41d4-a716-446655440000",
-  "origin_city": "Jakarta",
+  "origin_city": "Kupang",
   "destination_city": "Bandung",
   "departure_time": "2024-01-15T08:00:00Z",
   "seats": 2,
@@ -304,7 +304,7 @@ GET /api/bookings
   {
     "id": "660e8400-e29b-41d4-a716-446655440001",
     "journey_id": "550e8400-e29b-41d4-a716-446655440000",
-    "origin_city": "Jakarta",
+    "origin_city": "Kupang",
     "destination_city": "Bandung",
     "departure_time": "2024-01-15T08:00:00Z",
     "seats": 2,
@@ -352,7 +352,7 @@ GET /api/driver/journeys
 [
   {
     "id": "550e8400-e29b-41d4-a716-446655440000",
-    "origin_city": "Jakarta",
+    "origin_city": "Kupang",
     "destination_city": "Bandung",
     "departure_time": "2024-01-15T08:00:00Z",
     "total_seats": 40,
@@ -373,7 +373,7 @@ GET /api/driver/journeys/{id}/passengers
 ```json
 {
   "journey_id": "550e8400-e29b-41d4-a716-446655440000",
-  "origin_city": "Jakarta",
+  "origin_city": "Kupang",
   "destination_city": "Bandung",
   "departure_time": "2024-01-15T08:00:00Z",
   "passengers": [
@@ -418,7 +418,7 @@ GET /api/admin/journeys
 [
   {
     "id": "550e8400-e29b-41d4-a716-446655440000",
-    "origin_city": "Jakarta",
+    "origin_city": "Kupang",
     "destination_city": "Bandung",
     "departure_time": "2024-01-15T08:00:00Z",
     "total_seats": 40,

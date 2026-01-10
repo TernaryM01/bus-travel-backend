@@ -66,9 +66,6 @@ pub async fn list_journeys(
             .sum();
 
         let available = j.total_seats - booked;
-        if available <= 0 {
-            continue;
-        }
 
         responses.push(AvailableJourneyResponse {
             id: j.id,

@@ -24,8 +24,8 @@ impl MigrationTrait for Migration {
         let insert = Query::insert()
             .into_table(City::Table)
             .columns([City::Name, City::CenterLat, City::CenterLng, City::PickupRadiusKm])
-            .values_panic(["Jakarta".into(), (-6.2088).into(), (106.8456).into(), (10.0).into()])
-            .values_panic(["Bandung".into(), (-6.9175).into(), (107.6191).into(), (7.0).into()])
+            .values_panic(["Kupang".into(), (-10.1836).into(), (123.6257).into(), (5.0).into()])
+            .values_panic(["Soe".into(), (-9.8684).into(), (124.2861).into(), (2.0).into()])
             .to_owned();
 
         manager.exec_stmt(insert).await?;

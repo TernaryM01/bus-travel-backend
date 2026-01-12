@@ -1,5 +1,4 @@
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
@@ -8,7 +7,6 @@ use argon2::{
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use sea_orm_migration::MigratorTrait;
 use tokio::net::TcpListener;
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -18,6 +16,7 @@ use bus_travel_backend::{
     config::Config,
     db,
     entities::user::{self, UserRole},
+    middleware::rate_limit::create_global_governor,
     routes, AppState,
 };
 
@@ -57,20 +56,11 @@ async fn main() {
         config: config.clone(),
     };
 
-    // Configure rate limiting: 100 requests per 60 seconds per IP
-    let governor_config = Arc::new(
-        GovernorConfigBuilder::default()
-            .per_millisecond(600) // One token every 600ms (100 per minute)
-            .burst_size(100)      // Max capacity of the "window"
-            .finish()
-            .unwrap(),
-    );
-
     // Create router with middleware
     let app = routes::create_router(state)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
-        .layer(GovernorLayer::new(governor_config));
+        .layer(create_global_governor());
 
     // Start server with socket address for rate limiting
     let addr: SocketAddr = config.server_addr().parse().expect("Invalid address");

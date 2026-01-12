@@ -493,6 +493,7 @@ dependencies = [
  "axum-extra",
  "chrono",
  "dotenvy",
+ "governor",
  "jsonwebtoken",
  "migration",
  "rand 0.8.5",

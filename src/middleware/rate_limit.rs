@@ -1,11 +1,35 @@
 use axum::{
+    body::Body,
     extract::{ConnectInfo, Request},
     http::StatusCode,
     middleware::Next,
     response::Response,
 };
-
 use std::net::SocketAddr;
+use std::sync::Arc;
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+
+/// Type alias for the global governor layer (IP-based rate limiting)
+pub type GlobalGovernorLayer = GovernorLayer<
+    tower_governor::key_extractor::PeerIpKeyExtractor,
+    governor::middleware::NoOpMiddleware<governor::clock::QuantaInstant>,
+    Body,
+>;
+
+/// Create a GovernorLayer for global rate limiting (per IP address)
+/// - 1000 requests per minute (one token every 60ms)
+/// - Applied before authentication to protect against DDoS
+pub fn create_global_governor() -> GlobalGovernorLayer {
+    let config = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_millisecond(60) // One token every 60ms (1000 per minute)
+            .burst_size(1000)    // Max capacity of the "window"
+            .finish()
+            .unwrap(),
+    );
+
+    GovernorLayer::new(config)
+}
 
 /// Middleware to log rate limiting and request details
 pub async fn log_request(

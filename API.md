@@ -708,9 +708,32 @@ PUT /api/admin/bookings/{id}
 
 ## Rate Limiting
 
-The API is rate-limited to **100 requests per 60 seconds** per IP address.
+The API uses a **two-layer rate limiting** system:
 
-When exceeded, the server responds with:
+### Layer 1: Global Rate Limit (IP-based)
+
+Applied to **all requests** before authentication.
+
+| Limit | Key |
+|-------|-----|
+| 1000 requests per minute | IP address |
+
+**Purpose**: Protects against DDoS and abuse from unauthenticated sources.
+
+### Layer 2: Role-Based Rate Limit (Per-user)
+
+Applied to **authenticated routes** after JWT verification.
+
+| Role | Limit | Key |
+|------|-------|-----|
+| Admin | 1000 requests per minute | User ID |
+| Driver | 500 requests per minute | User ID |
+| Traveller | 100 requests per minute | User ID |
+
+**Purpose**: Provides fair usage limits based on account type. Per-user keying ensures users behind shared IPs (NAT, corporate networks) each get their own quota.
+
+### Response When Rate Limited
+
 - **Status**: `429 Too Many Requests`
 
 ---

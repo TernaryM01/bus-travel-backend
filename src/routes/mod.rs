@@ -4,11 +4,18 @@ use axum::{
     Router,
 };
 
+use crate::entities::user::UserRole;
 use crate::handlers::{admin, auth, driver, traveller};
 use crate::middleware::auth::{auth_middleware, require_admin, require_driver, require_traveller};
+use crate::middleware::role_rate_limit::create_role_governor;
 use crate::AppState;
 
 pub fn create_router(state: AppState) -> Router {
+    // Create role-specific governor layers
+    let admin_governor = create_role_governor(UserRole::Admin);
+    let driver_governor = create_role_governor(UserRole::Driver);
+    let traveller_governor = create_role_governor(UserRole::Traveller);
+
     // Public routes
     let auth_routes = Router::new()
         .route("/register", post(auth::register))
@@ -21,6 +28,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/cities", get(traveller::list_cities));
 
     // Admin routes (requires auth + admin role)
+    // Rate limit: 1000 requests per minute (10x base)
     let admin_routes = Router::new()
         // Journey management
         .route("/journeys", get(admin::list_journeys))
@@ -39,21 +47,26 @@ pub fn create_router(state: AppState) -> Router {
         .route("/bookings", get(admin::list_all_bookings))
         .route("/bookings/{id}", delete(admin::delete_booking))
         .route("/bookings/{id}", put(admin::update_booking))
+        .layer(admin_governor)
         .layer(middleware::from_fn(require_admin))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
 
     // Driver routes (requires auth + driver role)
+    // Rate limit: 500 requests per minute (5x base)
     let driver_routes = Router::new()
         .route("/journeys", get(driver::my_journeys))
         .route("/journeys/{id}/passengers", get(driver::journey_passengers))
+        .layer(driver_governor)
         .layer(middleware::from_fn(require_driver))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
 
     // Traveller routes (requires auth + traveller role)
+    // Rate limit: 100 requests per minute (1x base)
     let traveller_routes = Router::new()
         .route("/", post(traveller::create_booking))
         .route("/", get(traveller::my_bookings))
         .route("/{id}", delete(traveller::cancel_booking))
+        .layer(traveller_governor)
         .layer(middleware::from_fn(require_traveller))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
 

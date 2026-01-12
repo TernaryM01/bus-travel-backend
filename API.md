@@ -526,7 +526,32 @@ POST /api/admin/journeys/{id}/assign-driver
 
 ---
 
+### List All Users
+
+Returns all user accounts with their roles.
+
+```
+GET /api/admin/users
+```
+
+**Response:** `200 OK`
+```json
+[
+  {
+    "id": "770e8400-e29b-41d4-a716-446655440003",
+    "email": "user@example.com",
+    "name": "User Name",
+    "role": "traveller",
+    "created_at": "2024-01-01T00:00:00Z"
+  }
+]
+```
+
+---
+
 ### List All Drivers
+
+Returns users with driver role.
 
 ```
 GET /api/admin/drivers
@@ -546,50 +571,58 @@ GET /api/admin/drivers
 
 ---
 
-### Create Driver Account
+### Update User Role
+
+Change any user's role (admin, driver, or traveller).
 
 ```
-POST /api/admin/drivers
+PUT /api/admin/users/{id}/role
 ```
 
 **Request Body:**
 ```json
 {
-  "email": "driver@example.com",
-  "password": "password123",
-  "name": "New Driver"
+  "role": "driver"
 }
 ```
 
 **Response:** `200 OK`
 ```json
 {
-  "id": "770e8400-e29b-41d4-a716-446655440004",
-  "email": "driver@example.com",
-  "name": "New Driver",
-  "created_at": "2024-01-10T10:30:00Z"
+  "id": "770e8400-e29b-41d4-a716-446655440003",
+  "email": "user@example.com",
+  "name": "User Name",
+  "role": "driver",
+  "created_at": "2024-01-01T00:00:00Z"
 }
 ```
 
+> **Note:** When changing from driver role, user is unassigned from all journeys. When changing from traveller role, user's bookings are deleted.
+
 **Errors:**
-- `409 Conflict`: Email already registered
+- `404 Not Found`: User not found
 
 ---
 
-### Delete Driver Account
+### Delete User Account
+
+Delete any user account (including admins).
 
 ```
-DELETE /api/admin/drivers/{id}
+DELETE /api/admin/users/{id}
 ```
 
 **Response:** `200 OK`
 ```json
 {
-  "message": "Driver deleted"
+  "message": "User deleted"
 }
 ```
 
-> Note: Driver will be unassigned from any journeys before deletion.
+> **Note:** Drivers are unassigned from journeys. Users with bookings have their bookings deleted.
+
+**Errors:**
+- `404 Not Found`: User not found
 
 ---
 
@@ -614,6 +647,62 @@ GET /api/admin/bookings
   }
 ]
 ```
+
+---
+
+### Delete Booking (Admin)
+
+Delete any booking.
+
+```
+DELETE /api/admin/bookings/{id}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "message": "Booking deleted"
+}
+```
+
+**Errors:**
+- `404 Not Found`: Booking not found
+
+---
+
+### Update Booking (Admin)
+
+Modify a booking's pickup point and/or number of seats. Admin can put pickup point outside of the allowed circle area and can overbook (exceed the number of seats available).
+
+```
+PUT /api/admin/bookings/{id}
+```
+
+**Request Body:** (all fields optional)
+```json
+{
+  "pickup_lat": -6.22,
+  "pickup_lng": 106.84,
+  "seats": 3
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "id": "660e8400-e29b-41d4-a716-446655440001",
+  "journey_id": "550e8400-e29b-41d4-a716-446655440000",
+  "user_name": "John Doe",
+  "user_email": "john@example.com",
+  "seats": 3,
+  "pickup_lat": -6.22,
+  "pickup_lng": 106.84,
+  "created_at": "2024-01-10T10:30:00Z"
+}
+```
+
+**Errors:**
+- `404 Not Found`: Booking not found
 
 ---
 
@@ -645,4 +734,5 @@ For the pickup point selection:
 Use the `role` field from the login response to show/hide features:
 - **traveller**: Journey list, booking, my bookings
 - **driver**: Assigned journeys, passenger pickup map
-- **admin**: Journey CRUD, driver management, all bookings
+- **admin**: Journey CRUD, user management (list/role/delete), booking management (view/delete/update)
+

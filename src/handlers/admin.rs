@@ -1,7 +1,3 @@
-use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
-    Argon2,
-};
 use axum::{
     extract::{Path, State},
     Json,
@@ -221,8 +217,36 @@ pub async fn assign_driver(
     Ok(Json(result))
 }
 
-// ============ Driver Management ============
+// ============ User Management ============
 
+#[derive(Debug, Serialize)]
+pub struct UserResponse {
+    pub id: Uuid,
+    pub email: String,
+    pub name: String,
+    pub role: UserRole,
+    pub created_at: DateTime<Utc>,
+}
+
+/// List all users (admin)
+pub async fn list_all_users(State(state): State<AppState>) -> AppResult<Json<Vec<UserResponse>>> {
+    let users = user::Entity::find().all(&state.db).await?;
+
+    let responses: Vec<UserResponse> = users
+        .into_iter()
+        .map(|u| UserResponse {
+            id: u.id,
+            email: u.email,
+            name: u.name,
+            role: u.role,
+            created_at: u.created_at.with_timezone(&Utc),
+        })
+        .collect();
+
+    Ok(Json(responses))
+}
+
+/// List all drivers (admin)
 #[derive(Debug, Serialize)]
 pub struct DriverResponse {
     pub id: Uuid,
@@ -251,90 +275,96 @@ pub async fn list_drivers(State(state): State<AppState>) -> AppResult<Json<Vec<D
     Ok(Json(responses))
 }
 
-/// Create a new driver account (admin)
+/// Update user role (admin)
 #[derive(Debug, Deserialize)]
-pub struct CreateDriverRequest {
-    pub email: String,
-    pub password: String,
-    pub name: String,
+pub struct UpdateRoleRequest {
+    pub role: UserRole,
 }
 
-pub async fn create_driver(
+pub async fn update_user_role(
     State(state): State<AppState>,
-    Json(payload): Json<CreateDriverRequest>,
-) -> AppResult<Json<DriverResponse>> {
-    // Check if email already exists
-    let existing = user::Entity::find()
-        .filter(user::Column::Email.eq(&payload.email))
+    Path(user_id): Path<Uuid>,
+    Json(payload): Json<UpdateRoleRequest>,
+) -> AppResult<Json<UserResponse>> {
+    let user = user::Entity::find_by_id(user_id)
         .one(&state.db)
-        .await?;
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
-    if existing.is_some() {
-        return Err(AppError::Conflict("Email already registered".to_string()));
+    let old_role = user.role.clone();
+
+    // Handle role change side effects
+    if old_role == UserRole::Driver && payload.role != UserRole::Driver {
+        // Unassign from all journeys
+        let journeys = journey::Entity::find()
+            .filter(journey::Column::DriverId.eq(user_id))
+            .all(&state.db)
+            .await?;
+        for j in journeys {
+            let mut active: journey::ActiveModel = j.into();
+            active.driver_id = Set(None);
+            active.update(&state.db).await?;
+        }
     }
 
-    // Hash password
-    let salt = SaltString::generate(&mut OsRng);
-    let argon2 = Argon2::default();
-    let password_hash = argon2
-        .hash_password(payload.password.as_bytes(), &salt)
-        .map_err(|e| AppError::Internal(format!("Failed to hash password: {}", e)))?
-        .to_string();
+    if old_role == UserRole::Traveller && payload.role != UserRole::Traveller {
+        // Delete all bookings (bookings belong to travellers)
+        booking::Entity::delete_many()
+            .filter(booking::Column::UserId.eq(user_id))
+            .exec(&state.db)
+            .await?;
+    }
 
-    let user_id = Uuid::new_v4();
-    let new_driver = user::ActiveModel {
-        id: Set(user_id),
-        email: Set(payload.email.clone()),
-        password_hash: Set(password_hash),
-        name: Set(payload.name.clone()),
-        role: Set(UserRole::Driver),
-        ..Default::default()
-    };
+    let mut active: user::ActiveModel = user.into();
+    active.role = Set(payload.role.clone());
+    let updated = active.update(&state.db).await?;
 
-    let driver = new_driver.insert(&state.db).await?;
-
-    Ok(Json(DriverResponse {
-        id: driver.id,
-        email: driver.email,
-        name: driver.name,
-        created_at: driver.created_at.with_timezone(&Utc),
+    Ok(Json(UserResponse {
+        id: updated.id,
+        email: updated.email,
+        name: updated.name,
+        role: updated.role,
+        created_at: updated.created_at.with_timezone(&Utc),
     }))
 }
 
-/// Delete a driver account (admin)
-pub async fn delete_driver(
+/// Delete any user account (admin)
+pub async fn delete_user(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<serde_json::Value>> {
-    // Verify it's a driver
-    let driver = user::Entity::find_by_id(id)
+    let user = user::Entity::find_by_id(id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::NotFound("Driver not found".to_string()))?;
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
-    if driver.role != UserRole::Driver {
-        return Err(AppError::BadRequest("User is not a driver".to_string()));
+    // Handle cleanup based on role
+    if user.role == UserRole::Driver {
+        // Unassign from all journeys
+        let journeys = journey::Entity::find()
+            .filter(journey::Column::DriverId.eq(id))
+            .all(&state.db)
+            .await?;
+        for j in journeys {
+            let mut active: journey::ActiveModel = j.into();
+            active.driver_id = Set(None);
+            active.update(&state.db).await?;
+        }
     }
 
-    // Unassign driver from journeys first
-    let journeys = journey::Entity::find()
-        .filter(journey::Column::DriverId.eq(id))
-        .all(&state.db)
+    // Delete user's bookings (if any - travellers will have bookings)
+    booking::Entity::delete_many()
+        .filter(booking::Column::UserId.eq(id))
+        .exec(&state.db)
         .await?;
 
-    for j in journeys {
-        let mut active: journey::ActiveModel = j.into();
-        active.driver_id = Set(None);
-        active.update(&state.db).await?;
-    }
-
-    // Delete driver
+    // Delete user
     user::Entity::delete_by_id(id).exec(&state.db).await?;
 
-    Ok(Json(serde_json::json!({ "message": "Driver deleted" })))
+    Ok(Json(serde_json::json!({ "message": "User deleted" })))
 }
 
-// ============ Bookings (for admin view) ============
+// ============ Bookings Management (Admin) ============
 
 #[derive(Debug, Serialize)]
 pub struct BookingInfo {
@@ -375,7 +405,81 @@ pub async fn list_all_bookings(
     Ok(Json(responses))
 }
 
+/// Delete any booking (admin)
+pub async fn delete_booking(
+    State(state): State<AppState>,
+    Path(booking_id): Path<Uuid>,
+) -> AppResult<Json<serde_json::Value>> {
+    let result = booking::Entity::delete_by_id(booking_id)
+        .exec(&state.db)
+        .await?;
+
+    if result.rows_affected == 0 {
+        return Err(AppError::NotFound("Booking not found".to_string()));
+    }
+
+    Ok(Json(serde_json::json!({ "message": "Booking deleted" })))
+}
+
+/// Update booking (admin) - can change pickup point and/or seats
+#[derive(Debug, Deserialize)]
+pub struct UpdateBookingRequest {
+    pub pickup_lat: Option<f64>,
+    pub pickup_lng: Option<f64>,
+    pub seats: Option<i32>,
+}
+
+pub async fn update_booking(
+    State(state): State<AppState>,
+    Path(booking_id): Path<Uuid>,
+    Json(payload): Json<UpdateBookingRequest>,
+) -> AppResult<Json<BookingInfo>> {
+    let booking_record = booking::Entity::find_by_id(booking_id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Booking not found".to_string()))?;
+
+    let mut active: booking::ActiveModel = booking_record.clone().into();
+
+    // Update pickup point (no validation - admin can set any location)
+    if payload.pickup_lat.is_some() || payload.pickup_lng.is_some() {
+        let new_lat = payload.pickup_lat.unwrap_or(booking_record.pickup_lat);
+        let new_lng = payload.pickup_lng.unwrap_or(booking_record.pickup_lng);
+
+        active.pickup_lat = Set(new_lat);
+        active.pickup_lng = Set(new_lng);
+    }
+
+    // Update seats (admin can overbook)
+    if let Some(new_seats) = payload.seats {
+        if new_seats <= 0 {
+            return Err(AppError::BadRequest("Seats must be positive".to_string()));
+        }
+
+        active.seats = Set(new_seats);
+    }
+
+    let updated = active.update(&state.db).await?;
+
+    // Get user info for response
+    let user = user::Entity::find_by_id(updated.user_id)
+        .one(&state.db)
+        .await?;
+
+    Ok(Json(BookingInfo {
+        id: updated.id,
+        journey_id: updated.journey_id,
+        user_name: user.as_ref().map(|u| u.name.clone()).unwrap_or_default(),
+        user_email: user.as_ref().map(|u| u.email.clone()).unwrap_or_default(),
+        seats: updated.seats,
+        pickup_lat: updated.pickup_lat,
+        pickup_lng: updated.pickup_lng,
+        created_at: updated.created_at.with_timezone(&Utc),
+    }))
+}
+
 // ============ Journey Passengers (for admin view) ============
+
 
 #[derive(Debug, Serialize)]
 pub struct PassengerPickupInfo {

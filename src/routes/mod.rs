@@ -22,16 +22,23 @@ pub fn create_router(state: AppState) -> Router {
 
     // Admin routes (requires auth + admin role)
     let admin_routes = Router::new()
+        // Journey management
         .route("/journeys", get(admin::list_journeys))
         .route("/journeys", post(admin::create_journey))
         .route("/journeys/{id}", put(admin::update_journey))
         .route("/journeys/{id}", delete(admin::delete_journey))
         .route("/journeys/{id}/assign-driver", post(admin::assign_driver))
         .route("/journeys/{id}/passengers", get(admin::journey_passengers))
+        // User management
+        .route("/users", get(admin::list_all_users))
+        .route("/users/{id}", delete(admin::delete_user))
+        .route("/users/{id}/role", put(admin::update_user_role))
+        // Drivers
         .route("/drivers", get(admin::list_drivers))
-        .route("/drivers", post(admin::create_driver))
-        .route("/drivers/{id}", delete(admin::delete_driver))
+        // Booking management
         .route("/bookings", get(admin::list_all_bookings))
+        .route("/bookings/{id}", delete(admin::delete_booking))
+        .route("/bookings/{id}", put(admin::update_booking))
         .layer(middleware::from_fn(require_admin))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
 

@@ -8,21 +8,15 @@ use tower_governor::{
 use uuid::Uuid;
 
 use crate::entities::user::UserRole;
+use crate::middleware::rate_limit::rate_limit_error_handler;
 use crate::utils::jwt::Claims;
-
-/// Rate limit key combining user ID and role for per-user rate limiting
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct UserRateKey {
-    pub user_id: Uuid,
-    pub role: UserRole,
-}
 
 /// Custom key extractor that extracts user ID from JWT claims in request extensions
 #[derive(Debug, Clone, Copy)]
 pub struct UserIdExtractor;
 
 impl KeyExtractor for UserIdExtractor {
-    type Key = UserRateKey;
+    type Key = Uuid;
 
     fn extract<T>(&self, req: &Request<T>) -> Result<Self::Key, GovernorError> {
         // Get claims from request extensions (set by auth_middleware)
@@ -31,10 +25,7 @@ impl KeyExtractor for UserIdExtractor {
             .get::<Claims>()
             .ok_or(GovernorError::UnableToExtractKey)?;
 
-        Ok(UserRateKey {
-            user_id: claims.sub,
-            role: claims.role.clone(),
-        })
+        Ok(claims.sub)
     }
 }
 
@@ -65,5 +56,5 @@ pub fn create_role_governor(role: UserRole) -> RoleGovernorLayer {
             .unwrap(),
     );
 
-    GovernorLayer::new(config)
+    GovernorLayer::new(config).error_handler(rate_limit_error_handler)
 }

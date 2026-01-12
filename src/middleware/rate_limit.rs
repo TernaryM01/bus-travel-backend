@@ -1,13 +1,8 @@
-use axum::{
-    body::Body,
-    extract::{ConnectInfo, Request},
-    http::StatusCode,
-    middleware::Next,
-    response::Response,
-};
-use std::net::SocketAddr;
+use axum::body::Body;
+use axum::http::{Response, StatusCode};
+use axum::response::IntoResponse;
 use std::sync::Arc;
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_governor::{governor::GovernorConfigBuilder, GovernorError, GovernorLayer};
 
 /// Type alias for the global governor layer (IP-based rate limiting)
 pub type GlobalGovernorLayer = GovernorLayer<
@@ -15,6 +10,49 @@ pub type GlobalGovernorLayer = GovernorLayer<
     governor::middleware::NoOpMiddleware<governor::clock::QuantaInstant>,
     Body,
 >;
+
+/// Error handler for rate limiting - logs the rejection and returns a 429 response.
+/// This function is used by both global and role-based rate limiters.
+pub fn rate_limit_error_handler(err: GovernorError) -> Response<Body> {
+    //Sorry for the double matching.
+    // We're running into a hiccup with Rust's borrow system.
+    
+    // First, borrow to log
+    match &err {
+        GovernorError::TooManyRequests { .. } => {
+            tracing::warn!(
+                error = ?err,
+                status = %StatusCode::TOO_MANY_REQUESTS,
+                "Rate limited - request rejected due to too many requests"
+            );
+        }
+        _ => {
+            tracing::error!(
+                error = ?err,
+                status = %StatusCode::INTERNAL_SERVER_ERROR,
+                "Rate limiter error"
+            );
+        }
+    }
+    // Then, move to compose response
+    match err {
+        GovernorError::TooManyRequests { headers, .. } => {
+            let mut response = (
+                StatusCode::TOO_MANY_REQUESTS,
+                "Too Many Requests"
+            ).into_response();
+            
+            if let Some(headers_map) = headers {
+                response.headers_mut().extend(headers_map);
+            }
+            
+            response
+        }
+        _ => {
+            (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response()
+        }
+    }
+}
 
 /// Create a GovernorLayer for global rate limiting (per IP address)
 /// - 1000 requests per minute (one token every 60ms)
@@ -28,56 +66,5 @@ pub fn create_global_governor() -> GlobalGovernorLayer {
             .unwrap(),
     );
 
-    GovernorLayer::new(config)
-}
-
-/// Middleware to log rate limiting and request details
-pub async fn log_request(
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    request: Request,
-    next: Next,
-) -> Response {
-    let method = request.method().clone();
-    let uri = request.uri().clone();
-    let version = request.version();
-    
-    tracing::debug!(
-        client_ip = %addr.ip(),
-        method = %method,
-        uri = %uri,
-        version = ?version,
-        "Incoming request"
-    );
-
-    let response = next.run(request).await;
-    let status = response.status();
-
-    // Log rate limiting specifically
-    if status == StatusCode::TOO_MANY_REQUESTS {
-        tracing::warn!(
-            client_ip = %addr.ip(),
-            method = %method,
-            uri = %uri,
-            status = %status,
-            "RATE LIMITED - Request rejected due to too many requests"
-        );
-    } else if status.is_client_error() || status.is_server_error() {
-        tracing::warn!(
-            client_ip = %addr.ip(),
-            method = %method,
-            uri = %uri,
-            status = %status,
-            "Request failed"
-        );
-    } else {
-        tracing::debug!(
-            client_ip = %addr.ip(),
-            method = %method,
-            uri = %uri,
-            status = %status,
-            "Request completed"
-        );
-    }
-
-    response
+    GovernorLayer::new(config).error_handler(rate_limit_error_handler)
 }

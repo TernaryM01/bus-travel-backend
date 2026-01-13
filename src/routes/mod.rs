@@ -4,7 +4,7 @@ use axum::{
     Router,
 };
 
-use crate::entities::user::UserRole;
+use crate::middleware::role_rate_limit::RateLimitedRole;
 use crate::handlers::{admin, auth, driver, traveller};
 use crate::middleware::auth::{auth_middleware, require_admin, require_driver, require_traveller};
 use crate::middleware::role_rate_limit::create_role_governor;
@@ -12,9 +12,8 @@ use crate::AppState;
 
 pub fn create_router(state: AppState) -> Router {
     // Create role-specific governor layers
-    let admin_governor = create_role_governor(UserRole::Admin);
-    let driver_governor = create_role_governor(UserRole::Driver);
-    let traveller_governor = create_role_governor(UserRole::Traveller);
+    let driver_governor = create_role_governor(RateLimitedRole::Driver);
+    let traveller_governor = create_role_governor(RateLimitedRole::Traveller);
 
     // Public routes
     let auth_routes = Router::new()
@@ -47,7 +46,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/bookings", get(admin::list_all_bookings))
         .route("/bookings/{id}", delete(admin::delete_booking))
         .route("/bookings/{id}", put(admin::update_booking))
-        .layer(admin_governor)
+        // .layer(admin_governor)  // No need for second rate limiter for admin
         .layer(middleware::from_fn(require_admin))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
 

@@ -7,7 +7,6 @@ use tower_governor::{
 };
 use uuid::Uuid;
 
-use crate::entities::user::UserRole;
 use crate::middleware::rate_limit::rate_limit_error_handler;
 use crate::utils::jwt::Claims;
 
@@ -29,7 +28,6 @@ impl KeyExtractor for UserIdExtractor {
     }
 }
 
-/// Type alias for the governor layer with our custom key extractor
 pub type RoleGovernorLayer = GovernorLayer<
     UserIdExtractor,
     governor::middleware::NoOpMiddleware<governor::clock::QuantaInstant>,
@@ -37,14 +35,31 @@ pub type RoleGovernorLayer = GovernorLayer<
 >;
 
 /// Create a GovernorLayer for a specific role
-/// - Admin: 1000 requests per minute (10x base)
-/// - Driver: 500 requests per minute (5x base)  
-/// - Traveller: 100 requests per minute (1x base)
-pub fn create_role_governor(role: UserRole) -> RoleGovernorLayer {
+/// - Admin: No rate limiting (10x base in IP-based global rate limiter)
+/// - Driver: 500 requests per minute (5x base)
+/// - Traveller: 100 requests per minute (base)
+
+// The dedicated roles enum for rate limiting is meant to
+// prevent the role-based rate limiter from being used in admin routes.
+pub enum RateLimitedRole {
+    Traveller,
+    Driver,
+}
+// impl RateLimitedRole {
+//     fn from_user_role(role: UserRole) -> Option<Self> {
+//         match role {
+//             UserRole::Traveller => Some(RateLimitedRole::Traveller),
+//             UserRole::Driver => Some(RateLimitedRole::Driver),
+//             UserRole::Admin => None,
+//         }
+//     }
+//     ...
+// }
+
+pub fn create_role_governor(role: RateLimitedRole) -> RoleGovernorLayer {
     let (per_ms, burst) = match role {
-        UserRole::Admin => (60, 1000),      // 1000 per minute
-        UserRole::Driver => (120, 500),     // 500 per minute
-        UserRole::Traveller => (600, 100),  // 100 per minute
+        RateLimitedRole::Driver => (120, 500),     // 500 per minute
+        RateLimitedRole::Traveller => (600, 100),  // 100 per minute
     };
 
     let config = Arc::new(

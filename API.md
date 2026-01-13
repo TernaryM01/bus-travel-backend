@@ -1,7 +1,5 @@
 # Bus Travel API Documentation
 
-Base URL: `http://localhost:3000`
-
 ## Authentication
 
 All protected endpoints require a JWT token in the Authorization header:
@@ -219,34 +217,6 @@ GET /api/journeys/{id}
 
 ---
 
-### List Cities
-
-```
-GET /api/cities
-```
-
-**Response:** `200 OK`
-```json
-[
-  {
-    "id": 1,
-    "name": "Kupang",
-    "center_lat": -6.2088,
-    "center_lng": 106.8456,
-    "pickup_radius_km": 10.0
-  },
-  {
-    "id": 2,
-    "name": "Bandung",
-    "center_lat": -6.9175,
-    "center_lng": 107.6191,
-    "pickup_radius_km": 7.0
-  }
-]
-```
-
----
-
 ## Traveller Endpoints
 
 *Requires authentication with `traveller` role.*
@@ -404,6 +374,34 @@ GET /api/driver/journeys/{id}/passengers
 ## Admin Endpoints
 
 *Requires authentication with `admin` role.*
+
+### List Cities
+
+```
+GET /api/admin/cities
+```
+
+**Response:** `200 OK`
+```json
+[
+  {
+    "id": 1,
+    "name": "Kupang",
+    "center_lat": -6.2088,
+    "center_lng": 106.8456,
+    "pickup_radius_km": 10.0
+  },
+  {
+    "id": 2,
+    "name": "Bandung",
+    "center_lat": -6.9175,
+    "center_lng": 107.6191,
+    "pickup_radius_km": 7.0
+  }
+]
+```
+
+---
 
 ### List All Journeys
 
@@ -597,7 +595,7 @@ PUT /api/admin/users/{id}/role
 }
 ```
 
-> **Note:** When changing from driver role, user is unassigned from all journeys. When changing from traveller role, user's bookings are deleted.
+> ⚠️ When changing from driver role, user is unassigned from all journeys. When changing from traveller role, user's bookings are deleted.
 
 **Errors:**
 - `404 Not Found`: User not found
@@ -619,7 +617,7 @@ DELETE /api/admin/users/{id}
 }
 ```
 
-> **Note:** Drivers are unassigned from journeys. Users with bookings have their bookings deleted.
+> ⚠️ When deleted: drivers are unassigned from journeys, travellers have their bookings deleted.
 
 **Errors:**
 - `404 Not Found`: User not found
@@ -758,4 +756,3 @@ Use the `role` field from the login response to show/hide features:
 - **traveller**: Journey list, booking, my bookings
 - **driver**: Assigned journeys, passenger pickup map
 - **admin**: Journey CRUD, user management (list/role/delete), booking management (view/delete/update)
-

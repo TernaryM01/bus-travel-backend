@@ -7,6 +7,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::handlers::traveller::CityInfo;
 use crate::entities::{booking, city, journey, user};
 use crate::entities::user::UserRole;
 use crate::error::{AppError, AppResult};
@@ -46,6 +47,24 @@ pub struct DriverInfo {
     pub id: Uuid,
     pub name: String,
     pub email: String,
+}
+
+/// List all cities
+pub async fn list_cities(State(state): State<AppState>) -> AppResult<Json<Vec<CityInfo>>> {
+    let cities = city::Entity::find().all(&state.db).await?;
+
+    let responses: Vec<CityInfo> = cities
+        .into_iter()
+        .map(|c| CityInfo {
+            id: c.id,
+            name: c.name,
+            center_lat: c.center_lat,
+            center_lng: c.center_lng,
+            pickup_radius_km: c.pickup_radius_km,
+        })
+        .collect();
+
+    Ok(Json(responses))
 }
 
 /// List all journeys (admin)

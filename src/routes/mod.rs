@@ -28,13 +28,13 @@ pub fn create_router(state: AppState) -> Router {
     let public_routes = Router::new()
         .route("/journeys", get(traveller::list_journeys))
         .route("/journeys/{id}", get(traveller::get_journey))
-        .route("/cities", get(traveller::list_cities))
         .layer(public_governor);
 
     // Admin routes (requires auth + admin role)
     // Rate limit: 1000 / 2 requests per minute (10x base)
     let admin_routes = Router::new()
         // Journey management
+        .route("/cities", get(admin::list_cities))
         .route("/journeys", get(admin::list_journeys))
         .route("/journeys", post(admin::create_journey))
         .route("/journeys/{id}", put(admin::update_journey))

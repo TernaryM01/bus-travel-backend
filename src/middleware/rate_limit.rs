@@ -33,12 +33,11 @@ pub fn rate_limit_error_handler(err: GovernorError) -> Response<Body> {
 }
 
 /// Create a GovernorLayer for global rate limiting (per IP address)
-/// - 1000 requests per minute (one token every 60ms)
 /// - Applied before authentication to protect against DDoS
 pub fn create_global_governor() -> GlobalGovernorLayer {
     let config = Arc::new(
         GovernorConfigBuilder::default()
-            .per_millisecond(60) // One token every 60ms (1000 per minute)
+            .per_millisecond(60 * 2) // One token every 60 * 2 ms (1000 / 2 per minute)
             .burst_size(1000)    // Max capacity of the "window"
             .finish()
             .unwrap(),
@@ -48,13 +47,12 @@ pub fn create_global_governor() -> GlobalGovernorLayer {
 }
 
 /// Create a GovernorLayer for public endpoints (per IP address, with traveller-level limits)
-/// - 100 requests per minute (one token every 600ms)
 /// - Applied to public routes where there's no authenticated user
 /// - Uses same restrictive limits as traveller rate limiting
 pub fn create_public_governor() -> GlobalGovernorLayer {
     let config = Arc::new(
         GovernorConfigBuilder::default()
-            .per_millisecond(600) // One token every 600ms (100 per minute)
+            .per_millisecond(600 * 2) // One token every 600 * 2 ms (100 / 2 per minute)
             .burst_size(100)      // Same as traveller limit
             .finish()
             .unwrap(),

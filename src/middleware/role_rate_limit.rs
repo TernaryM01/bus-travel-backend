@@ -58,8 +58,8 @@ pub enum RateLimitedRole {
 
 pub fn create_role_governor(role: RateLimitedRole) -> RoleGovernorLayer {
     let (per_ms, burst) = match role {
-        RateLimitedRole::Driver => (120, 500),     // 500 per minute
-        RateLimitedRole::Traveller => (600, 100),  // 100 per minute
+        RateLimitedRole::Driver => (120 * 2, 500),     // 500 / 2 per minute
+        RateLimitedRole::Traveller => (600 * 2, 100),  // 100 / 2 per minute
     };
 
     let config = Arc::new(

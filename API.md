@@ -716,7 +716,7 @@ Applied to **all requests** before authentication.
 
 | Limit | Key |
 |-------|-----|
-| 1000 requests per minute | IP address |
+| 500 requests per minute | IP address |
 
 **Purpose**: Protects against DDoS and abuse from unauthenticated sources.
 
@@ -726,9 +726,9 @@ Applied to **authenticated routes** after JWT verification.
 
 | Role | Limit | Key |
 |------|-------|-----|
-| Admin | 1000 requests per minute | User ID |
-| Driver | 500 requests per minute | User ID |
-| Traveller | 100 requests per minute | User ID |
+| Admin | 500 requests per minute | User ID |
+| Driver | 250 requests per minute | User ID |
+| Traveller | 50 requests per minute | User ID |
 
 **Purpose**: Provides fair usage limits based on account type. Per-user keying ensures users behind shared IPs (NAT, corporate networks) each get their own quota.
 

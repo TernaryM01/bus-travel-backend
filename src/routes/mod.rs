@@ -32,7 +32,7 @@ pub fn create_router(state: AppState) -> Router {
         .layer(public_governor);
 
     // Admin routes (requires auth + admin role)
-    // Rate limit: 1000 requests per minute (10x base)
+    // Rate limit: 1000 / 2 requests per minute (10x base)
     let admin_routes = Router::new()
         // Journey management
         .route("/journeys", get(admin::list_journeys))
@@ -56,7 +56,7 @@ pub fn create_router(state: AppState) -> Router {
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
 
     // Driver routes (requires auth + driver role)
-    // Rate limit: 500 requests per minute (5x base)
+    // Rate limit: 500 / 2 requests per minute (5x base)
     let driver_routes = Router::new()
         .route("/journeys", get(driver::my_journeys))
         .route("/journeys/{id}/passengers", get(driver::journey_passengers))
@@ -65,7 +65,7 @@ pub fn create_router(state: AppState) -> Router {
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
 
     // Traveller routes (requires auth + traveller role)
-    // Rate limit: 100 requests per minute (1x base)
+    // Rate limit: 100 / 2 requests per minute (1x base)
     let traveller_routes = Router::new()
         .route("/", post(traveller::create_booking))
         .route("/", get(traveller::my_bookings))

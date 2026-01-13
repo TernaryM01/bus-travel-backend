@@ -7,6 +7,7 @@ use axum::{
 use crate::middleware::role_rate_limit::RateLimitedRole;
 use crate::handlers::{admin, auth, driver, traveller};
 use crate::middleware::auth::{auth_middleware, require_admin, require_driver, require_traveller};
+use crate::middleware::rate_limit::create_public_governor;
 use crate::middleware::role_rate_limit::create_role_governor;
 use crate::AppState;
 
@@ -14,17 +15,21 @@ pub fn create_router(state: AppState) -> Router {
     // Create role-specific governor layers
     let driver_governor = create_role_governor(RateLimitedRole::Driver);
     let traveller_governor = create_role_governor(RateLimitedRole::Traveller);
+    // Create IP-based governor for public routes (with traveller-level limits)
+    let public_governor = create_public_governor();
 
-    // Public routes
+    // Public routes (with traveller-level rate limiting per IP)
     let auth_routes = Router::new()
         .route("/register", post(auth::register))
-        .route("/login", post(auth::login));
+        .route("/login", post(auth::login))
+        .layer(public_governor.clone());
 
     // Public journey routes (list available journeys, cities)
     let public_routes = Router::new()
         .route("/journeys", get(traveller::list_journeys))
         .route("/journeys/{id}", get(traveller::get_journey))
-        .route("/cities", get(traveller::list_cities));
+        .route("/cities", get(traveller::list_cities))
+        .layer(public_governor);
 
     // Admin routes (requires auth + admin role)
     // Rate limit: 1000 requests per minute (10x base)

@@ -20,7 +20,9 @@ pub struct Model {
     #[sea_orm(unique)]
     pub email: String,
     #[serde(skip_serializing)]
-    pub password_hash: String,
+    pub password_hash: Option<String>,
+    #[sea_orm(unique)]
+    pub google_id: Option<String>,
     pub name: String,
     pub role: UserRole,
     pub created_at: DateTimeWithTimeZone,

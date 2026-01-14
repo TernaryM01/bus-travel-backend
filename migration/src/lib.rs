@@ -4,6 +4,7 @@ mod m20231228_000001_create_cities;
 mod m20231228_000002_create_users;
 mod m20231228_000003_create_journeys;
 mod m20231228_000004_create_bookings;
+mod m20260114_000001_add_google_oauth;
 
 pub struct Migrator;
 
@@ -15,6 +16,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20231228_000002_create_users::Migration),
             Box::new(m20231228_000003_create_journeys::Migration),
             Box::new(m20231228_000004_create_bookings::Migration),
+            Box::new(m20260114_000001_add_google_oauth::Migration),
         ]
     }
 }

@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
     Argon2,
+    password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
 };
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use sea_orm_migration::MigratorTrait;
@@ -13,11 +13,12 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
 use bus_travel_backend::{
+    AppState,
     config::Config,
     db,
     entities::user::{self, UserRole},
     middleware::rate_limit::create_global_governor,
-    routes, AppState,
+    routes,
 };
 
 #[tokio::main]
@@ -59,7 +60,12 @@ async fn main() {
     // Create router with middleware
     let app = routes::create_router(state)
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
         .layer(create_global_governor());
 
     // Start server with socket address for rate limiting
@@ -99,7 +105,8 @@ async fn seed_admin(db: &sea_orm::DatabaseConnection) {
         let admin = user::ActiveModel {
             id: Set(Uuid::new_v4()),
             email: Set(admin_email.to_string()),
-            password_hash: Set(password_hash),
+            password_hash: Set(Some(password_hash)),
+            google_id: Set(None),
             name: Set("Admin".to_string()),
             role: Set(UserRole::Admin),
             ..Default::default()

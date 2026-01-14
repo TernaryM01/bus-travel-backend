@@ -1,15 +1,14 @@
 use axum::{
-    middleware,
+    Router, middleware,
     routing::{delete, get, post, put},
-    Router,
 };
 
-use crate::middleware::role_rate_limit::RateLimitedRole;
+use crate::AppState;
 use crate::handlers::{admin, auth, driver, traveller};
 use crate::middleware::auth::{auth_middleware, require_admin, require_driver, require_traveller};
 use crate::middleware::rate_limit::create_public_governor;
+use crate::middleware::role_rate_limit::RateLimitedRole;
 use crate::middleware::role_rate_limit::create_role_governor;
-use crate::AppState;
 
 pub fn create_router(state: AppState) -> Router {
     // Create role-specific governor layers
@@ -22,6 +21,7 @@ pub fn create_router(state: AppState) -> Router {
     let auth_routes = Router::new()
         .route("/register", post(auth::register))
         .route("/login", post(auth::login))
+        .route("/google", post(auth::google_login))
         .layer(public_governor.clone());
 
     // Public journey routes (list available journeys, cities)
@@ -53,7 +53,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/bookings/{id}", put(admin::update_booking))
         // .layer(admin_governor)  // No need for second rate limiter for admin
         .layer(middleware::from_fn(require_admin))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     // Driver routes (requires auth + driver role)
     // Rate limit: 500 / 2 requests per minute (5x base)
@@ -62,7 +65,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/journeys/{id}/passengers", get(driver::journey_passengers))
         .layer(driver_governor)
         .layer(middleware::from_fn(require_driver))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     // Traveller routes (requires auth + traveller role)
     // Rate limit: 100 / 2 requests per minute (1x base)
@@ -72,7 +78,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/{id}", delete(traveller::cancel_booking))
         .layer(traveller_governor)
         .layer(middleware::from_fn(require_traveller))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     // Combine all routes
     Router::new()

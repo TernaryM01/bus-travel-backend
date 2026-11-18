@@ -2,6 +2,8 @@ use axum::body::Body;
 use axum::http::{Response, StatusCode};
 use axum::response::IntoResponse;
 use std::sync::Arc;
+
+use crate::error::AppError;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorError, GovernorLayer};
 
 /// Type alias for the global governor layer (IP-based rate limiting)
@@ -20,14 +22,19 @@ pub fn rate_limit_error_handler(err: GovernorError) -> Response<Body> {
                 status = %StatusCode::TOO_MANY_REQUESTS,
                 "Rate limited - request rejected due to too many requests"
             );
-            (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response()
+            AppError::Status(StatusCode::TOO_MANY_REQUESTS, "Too many requests".to_string())
+                .into_response()
         }
         _ => {
             tracing::error!(
                 status = %StatusCode::INTERNAL_SERVER_ERROR,
                 "Rate limiter error"
             );
-            (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response()
+            AppError::Status(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal server error".to_string(),
+            )
+            .into_response()
         }
     }
 }

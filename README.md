@@ -8,13 +8,13 @@ A Rust backend for a bus travel booking system between Kupang and Soe, built wit
 - **Journey Management**: Admins create bus journeys between Kupang ↔ Soe
 - **Booking System**: Travellers book seats and specify pickup points within allowed radius
 - **Driver Dashboard**: Drivers view assigned journeys and passenger pickup locations
-- **Rate Limiting**: 100 requests per 60 seconds per IP address
+- **Rate Limiting**: Per-IP and per-user limits (see [API.md](./API.md#rate-limiting))
 
 ## Tech Stack
 
 | Component | Technology |
 |-----------|------------|
-| Framework | Axum 0.7 |
+| Framework | Axum 0.8 |
 | ORM | SeaORM 1.0 |
 | Database | PostgreSQL |
 | Auth | JWT (jsonwebtoken) + Argon2 password hashing |
@@ -68,7 +68,10 @@ JWT_SECRET=your-secret-key-change-in-production
 JWT_EXPIRATION_HOURS=24
 SERVER_HOST=0.0.0.0
 SERVER_PORT=3000
+OAUTH_CLIENT_ID=your-google-oauth-client-id
 ```
+
+`OAUTH_CLIENT_ID` is required: it's the Google OAuth client ID used to verify "Sign in with Google" tokens. The server won't start without it.
 
 ### 3. Run
 

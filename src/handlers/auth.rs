@@ -2,11 +2,12 @@ use argon2::{
     Argon2,
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
 };
-use axum::{Json, extract::State};
+use axum::extract::State;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::extract::Json;
 use crate::AppState;
 use crate::entities::user::{self, UserRole};
 use crate::error::{AppError, AppResult};

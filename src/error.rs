@@ -1,4 +1,5 @@
 use axum::{
+    extract::rejection::{JsonRejection, PathRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
@@ -28,6 +29,23 @@ pub enum AppError {
 
     #[error("Internal server error: {0}")]
     Internal(String),
+
+    /// Any other error status (405, 415, 422, 429, ...), e.g. a request that
+    /// axum couldn't parse. Still rendered as `{"error": "..."}`.
+    #[error("{1}")]
+    Status(StatusCode, String),
+}
+
+impl From<JsonRejection> for AppError {
+    fn from(rejection: JsonRejection) -> Self {
+        AppError::Status(rejection.status(), rejection.body_text())
+    }
+}
+
+impl From<PathRejection> for AppError {
+    fn from(rejection: PathRejection) -> Self {
+        AppError::Status(rejection.status(), rejection.body_text())
+    }
 }
 
 impl IntoResponse for AppError {
@@ -46,6 +64,7 @@ impl IntoResponse for AppError {
                 tracing::error!("Internal error: {}", msg);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             }
+            AppError::Status(status, msg) => (*status, msg.clone()),
         };
 
         let body = Json(json!({

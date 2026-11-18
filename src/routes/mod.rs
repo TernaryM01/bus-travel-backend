@@ -1,9 +1,10 @@
 use axum::{
-    Router, middleware,
+    Router, http::StatusCode, middleware,
     routing::{delete, get, post, put},
 };
 
 use crate::AppState;
+use crate::error::AppError;
 use crate::handlers::{admin, auth, driver, traveller};
 use crate::middleware::auth::{auth_middleware, require_admin, require_driver, require_traveller};
 use crate::middleware::rate_limit::create_public_governor;
@@ -90,5 +91,17 @@ pub fn create_router(state: AppState) -> Router {
         .nest("/api/admin", admin_routes)
         .nest("/api/driver", driver_routes)
         .nest("/api/bookings", traveller_routes)
+        // Unknown paths and unsupported methods get the usual JSON error body
+        // instead of axum's default empty response.
+        .fallback(not_found)
+        .method_not_allowed_fallback(method_not_allowed)
         .with_state(state)
+}
+
+async fn not_found() -> AppError {
+    AppError::NotFound("Route not found".to_string())
+}
+
+async fn method_not_allowed() -> AppError {
+    AppError::Status(StatusCode::METHOD_NOT_ALLOWED, "Method not allowed".to_string())
 }

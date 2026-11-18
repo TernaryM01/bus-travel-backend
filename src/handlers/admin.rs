@@ -1,12 +1,10 @@
-use axum::{
-    extract::{Path, State},
-    Json,
-};
+use axum::extract::State;
 use chrono::{DateTime, Utc};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::extract::{Json, Path};
 use crate::handlers::traveller::CityInfo;
 use crate::entities::{booking, city, journey, user};
 use crate::entities::user::UserRole;

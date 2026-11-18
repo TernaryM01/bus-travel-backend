@@ -5,6 +5,7 @@ use axum::{
 };
 use axum_extra::{
     headers::{authorization::Bearer, Authorization},
+    typed_header::TypedHeaderRejection,
     TypedHeader,
 };
 
@@ -16,10 +17,15 @@ use crate::AppState;
 /// Extract and validate JWT token from Authorization header
 pub async fn auth_middleware(
     State(state): State<AppState>,
-    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    auth: Result<TypedHeader<Authorization<Bearer>>, TypedHeaderRejection>,
     mut request: Request,
     next: Next,
 ) -> AppResult<Response> {
+    // A missing or non-Bearer header is an authentication failure (401),
+    // same as a bad token, rather than axum's default plain-text 400.
+    let TypedHeader(auth) = auth.map_err(|_| {
+        AppError::Unauthorized("Missing or invalid Authorization header".to_string())
+    })?;
     let claims = verify_token(auth.token(), &state.config.jwt_secret)?;
     request.extensions_mut().insert(claims);
     Ok(next.run(request).await)

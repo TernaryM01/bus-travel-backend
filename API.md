@@ -8,7 +8,7 @@ All protected endpoints require a JWT token in the Authorization header:
 Authorization: Bearer <token>
 ```
 
-Tokens are obtained from the login endpoint and expire after 24 hours (configurable).
+Tokens are obtained from the register and login endpoints and expire after 24 hours (configurable).
 
 ---
 
@@ -23,6 +23,7 @@ Tokens are obtained from the login endpoint and expire after 24 hours (configura
 ```
 
 ### Error Response
+Every error response has this shape, including malformed requests, unknown routes and rate limiting:
 ```json
 {
   "error": "Error message"
@@ -33,11 +34,14 @@ Tokens are obtained from the login endpoint and expire after 24 hours (configura
 | Code | Meaning |
 |------|---------|
 | 200 | Success |
-| 400 | Bad Request - Invalid input |
-| 401 | Unauthorized - Invalid/missing token |
+| 400 | Bad Request - Invalid input, malformed JSON, or invalid ID in the URL |
+| 401 | Unauthorized - Missing, malformed, invalid or expired token; wrong login |
 | 403 | Forbidden - Insufficient permissions |
-| 404 | Not Found |
+| 404 | Not Found - Resource or route doesn't exist |
+| 405 | Method Not Allowed - Route exists, but not with this HTTP method |
 | 409 | Conflict - Resource already exists |
+| 415 | Unsupported Media Type - Body sent without `Content-Type: application/json` |
+| 422 | Unprocessable Entity - JSON body has missing fields or wrong value types |
 | 429 | Too Many Requests - Rate limited |
 | 500 | Internal Server Error |
 
@@ -47,14 +51,15 @@ Tokens are obtained from the login endpoint and expire after 24 hours (configura
 
 ### UserRole
 ```typescript
-type UserRole = "admin" | "driver" | "traveller";
+type UserRole = "Admin" | "Driver" | "Traveller";
 ```
+Role values are case-sensitive, in responses and in request bodies.
 
 ### City
 ```typescript
 interface City {
   id: number;
-  name: string;           // "Kupang" or "Bandung"
+  name: string;           // "Kupang" or "Soe"
   center_lat: number;     // Latitude of city center
   center_lng: number;     // Longitude of city center
   pickup_radius_km: number; // Max pickup distance from center
@@ -127,7 +132,7 @@ POST /api/auth/register
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "email": "user@example.com",
     "name": "John Doe",
-    "role": "traveller"
+    "role": "Traveller"
   }
 }
 ```
@@ -161,19 +166,41 @@ POST /api/auth/login
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "email": "user@example.com",
     "name": "John Doe",
-    "role": "traveller"
+    "role": "Traveller"
   }
 }
 ```
 
 **Errors:**
-- `401 Unauthorized`: Invalid email or password
+- `401 Unauthorized`: Invalid email or password, or the account only uses Google sign-in
+
+---
+
+### Login with Google
+
+Signs in with a Google ID token (from Google Identity Services). On first sign-in this creates a `Traveller` account, or links Google to an existing account with the same email.
+
+```
+POST /api/auth/google
+```
+
+**Request Body:**
+```json
+{
+  "credential": "<Google ID token>"
+}
+```
+
+**Response:** `200 OK` — same format as Login.
+
+**Errors:**
+- `401 Unauthorized`: Invalid Google token, or a token issued for a different client ID (`OAUTH_CLIENT_ID`)
 
 ---
 
 ### List Available Journeys
 
-Returns future journeys with available seats.
+Returns journeys that haven't departed yet, including full ones (`available_seats: 0`).
 
 ```
 GET /api/journeys
@@ -187,16 +214,16 @@ GET /api/journeys
     "origin_city": {
       "id": 1,
       "name": "Kupang",
-      "center_lat": -6.2088,
-      "center_lng": 106.8456,
-      "pickup_radius_km": 10.0
+      "center_lat": -10.1836,
+      "center_lng": 123.6257,
+      "pickup_radius_km": 5.0
     },
     "destination_city": {
       "id": 2,
-      "name": "Bandung",
-      "center_lat": -6.9175,
-      "center_lng": 107.6191,
-      "pickup_radius_km": 7.0
+      "name": "Soe",
+      "center_lat": -9.8684,
+      "center_lng": 124.2861,
+      "pickup_radius_km": 2.0
     },
     "departure_time": "2024-01-15T08:00:00Z",
     "available_seats": 35,
@@ -213,13 +240,18 @@ GET /api/journeys
 GET /api/journeys/{id}
 ```
 
-**Response:** Same format as list item above.
+Returns any journey by ID, including past ones.
+
+**Response:** `200 OK` — same format as a list item above.
+
+**Errors:**
+- `404 Not Found`: Journey not found
 
 ---
 
 ## Traveller Endpoints
 
-*Requires authentication with `traveller` role.*
+*Requires authentication with the `Traveller` role.*
 
 ### Book a Journey
 
@@ -232,8 +264,8 @@ POST /api/bookings
 {
   "journey_id": "550e8400-e29b-41d4-a716-446655440000",
   "seats": 2,
-  "pickup_lat": -6.21,
-  "pickup_lng": 106.85
+  "pickup_lat": -10.18,
+  "pickup_lng": 123.62
 }
 ```
 
@@ -243,17 +275,18 @@ POST /api/bookings
   "id": "660e8400-e29b-41d4-a716-446655440001",
   "journey_id": "550e8400-e29b-41d4-a716-446655440000",
   "origin_city": "Kupang",
-  "destination_city": "Bandung",
+  "destination_city": "Soe",
   "departure_time": "2024-01-15T08:00:00Z",
   "seats": 2,
-  "pickup_lat": -6.21,
-  "pickup_lng": 106.85,
+  "pickup_lat": -10.18,
+  "pickup_lng": 123.62,
   "created_at": "2024-01-10T10:30:00Z"
 }
 ```
 
 **Errors:**
-- `400 Bad Request`: 
+- `400 Bad Request`:
+  - Fewer than 1 seat
   - Not enough seats available
   - Past journey
   - Pickup point outside allowed radius
@@ -275,11 +308,11 @@ GET /api/bookings
     "id": "660e8400-e29b-41d4-a716-446655440001",
     "journey_id": "550e8400-e29b-41d4-a716-446655440000",
     "origin_city": "Kupang",
-    "destination_city": "Bandung",
+    "destination_city": "Soe",
     "departure_time": "2024-01-15T08:00:00Z",
     "seats": 2,
-    "pickup_lat": -6.21,
-    "pickup_lng": 106.85,
+    "pickup_lat": -10.18,
+    "pickup_lng": 123.62,
     "created_at": "2024-01-10T10:30:00Z"
   }
 ]
@@ -309,7 +342,7 @@ DELETE /api/bookings/{id}
 
 ## Driver Endpoints
 
-*Requires authentication with `driver` role.*
+*Requires authentication with the `Driver` role.*
 
 ### List My Assigned Journeys
 
@@ -323,7 +356,7 @@ GET /api/driver/journeys
   {
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "origin_city": "Kupang",
-    "destination_city": "Bandung",
+    "destination_city": "Soe",
     "departure_time": "2024-01-15T08:00:00Z",
     "total_seats": 40,
     "booked_seats": 25
@@ -344,22 +377,22 @@ GET /api/driver/journeys/{id}/passengers
 {
   "journey_id": "550e8400-e29b-41d4-a716-446655440000",
   "origin_city": "Kupang",
-  "destination_city": "Bandung",
+  "destination_city": "Soe",
   "departure_time": "2024-01-15T08:00:00Z",
   "passengers": [
     {
       "booking_id": "660e8400-e29b-41d4-a716-446655440001",
       "passenger_name": "John Doe",
       "seats": 2,
-      "pickup_lat": -6.21,
-      "pickup_lng": 106.85
+      "pickup_lat": -10.18,
+      "pickup_lng": 123.62
     },
     {
       "booking_id": "660e8400-e29b-41d4-a716-446655440002",
       "passenger_name": "Jane Smith",
       "seats": 1,
-      "pickup_lat": -6.19,
-      "pickup_lng": 106.82
+      "pickup_lat": -10.19,
+      "pickup_lng": 123.63
     }
   ]
 }
@@ -373,7 +406,7 @@ GET /api/driver/journeys/{id}/passengers
 
 ## Admin Endpoints
 
-*Requires authentication with `admin` role.*
+*Requires authentication with the `Admin` role.*
 
 ### List Cities
 
@@ -387,16 +420,16 @@ GET /api/admin/cities
   {
     "id": 1,
     "name": "Kupang",
-    "center_lat": -6.2088,
-    "center_lng": 106.8456,
-    "pickup_radius_km": 10.0
+    "center_lat": -10.1836,
+    "center_lng": 123.6257,
+    "pickup_radius_km": 5.0
   },
   {
     "id": 2,
-    "name": "Bandung",
-    "center_lat": -6.9175,
-    "center_lng": 107.6191,
-    "pickup_radius_km": 7.0
+    "name": "Soe",
+    "center_lat": -9.8684,
+    "center_lng": 124.2861,
+    "pickup_radius_km": 2.0
   }
 ]
 ```
@@ -417,7 +450,7 @@ GET /api/admin/journeys
   {
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "origin_city": "Kupang",
-    "destination_city": "Bandung",
+    "destination_city": "Soe",
     "departure_time": "2024-01-15T08:00:00Z",
     "total_seats": 40,
     "booked_seats": 25,
@@ -482,7 +515,11 @@ PUT /api/admin/journeys/{id}
 }
 ```
 
-**Response:** Updated journey object.
+**Response:** `200 OK`
+
+**Errors:**
+- `400 Bad Request`: Invalid city ID
+- `404 Not Found`: Journey not found
 
 ---
 
@@ -516,11 +553,26 @@ POST /api/admin/journeys/{id}/assign-driver
 }
 ```
 
-**Response:** Updated journey object with driver_id set.
+**Response:** `200 OK`, with `driver_id` set.
 
 **Errors:**
 - `400 Bad Request`: User is not a driver
 - `404 Not Found`: Driver or journey not found
+
+---
+
+### Get Passenger Pickup Points (Admin)
+
+Same as the driver endpoint of the same name, for any journey (no assignment check).
+
+```
+GET /api/admin/journeys/{id}/passengers
+```
+
+**Response:** `200 OK` — same format as the driver version.
+
+**Errors:**
+- `404 Not Found`: Journey not found
 
 ---
 
@@ -539,7 +591,7 @@ GET /api/admin/users
     "id": "770e8400-e29b-41d4-a716-446655440003",
     "email": "user@example.com",
     "name": "User Name",
-    "role": "traveller",
+    "role": "Traveller",
     "created_at": "2024-01-01T00:00:00Z"
   }
 ]
@@ -549,7 +601,7 @@ GET /api/admin/users
 
 ### List All Drivers
 
-Returns users with driver role.
+Returns users with the `Driver` role.
 
 ```
 GET /api/admin/drivers
@@ -571,7 +623,7 @@ GET /api/admin/drivers
 
 ### Update User Role
 
-Change any user's role (admin, driver, or traveller).
+Change any user's role to `Admin`, `Driver` or `Traveller`.
 
 ```
 PUT /api/admin/users/{id}/role
@@ -580,7 +632,7 @@ PUT /api/admin/users/{id}/role
 **Request Body:**
 ```json
 {
-  "role": "driver"
+  "role": "Driver"
 }
 ```
 
@@ -590,7 +642,7 @@ PUT /api/admin/users/{id}/role
   "id": "770e8400-e29b-41d4-a716-446655440003",
   "email": "user@example.com",
   "name": "User Name",
-  "role": "driver",
+  "role": "Driver",
   "created_at": "2024-01-01T00:00:00Z"
 }
 ```
@@ -599,6 +651,7 @@ PUT /api/admin/users/{id}/role
 
 **Errors:**
 - `404 Not Found`: User not found
+- `422 Unprocessable Entity`: Unknown role value (role names are case-sensitive)
 
 ---
 
@@ -639,8 +692,8 @@ GET /api/admin/bookings
     "user_name": "John Doe",
     "user_email": "john@example.com",
     "seats": 2,
-    "pickup_lat": -6.21,
-    "pickup_lng": 106.85,
+    "pickup_lat": -10.18,
+    "pickup_lng": 123.62,
     "created_at": "2024-01-10T10:30:00Z"
   }
 ]
@@ -679,8 +732,8 @@ PUT /api/admin/bookings/{id}
 **Request Body:** (all fields optional)
 ```json
 {
-  "pickup_lat": -6.22,
-  "pickup_lng": 106.84,
+  "pickup_lat": -10.17,
+  "pickup_lng": 123.64,
   "seats": 3
 }
 ```
@@ -693,13 +746,14 @@ PUT /api/admin/bookings/{id}
   "user_name": "John Doe",
   "user_email": "john@example.com",
   "seats": 3,
-  "pickup_lat": -6.22,
-  "pickup_lng": 106.84,
+  "pickup_lat": -10.17,
+  "pickup_lng": 123.64,
   "created_at": "2024-01-10T10:30:00Z"
 }
 ```
 
 **Errors:**
+- `400 Bad Request`: Seats must be positive
 - `404 Not Found`: Booking not found
 
 ---
@@ -708,31 +762,34 @@ PUT /api/admin/bookings/{id}
 
 The API uses a **two-layer rate limiting** system:
 
+Each limit is a token bucket: a client can send up to the burst size at once, then refills at the steady rate.
+
 ### Layer 1: Global Rate Limit (IP-based)
 
 Applied to **all requests** before authentication.
 
-| Limit | Key |
-|-------|-----|
-| 500 requests per minute | IP address |
+| Steady rate | Burst | Key |
+|-------------|-------|-----|
+| 500 requests per minute | 1000 | IP address |
 
 **Purpose**: Protects against DDoS and abuse from unauthenticated sources.
 
-### Layer 2: Role-Based Rate Limit (Per-user)
+### Layer 2: Route Rate Limits
 
-Applied to **authenticated routes** after JWT verification.
+| Routes | Steady rate | Burst | Key |
+|--------|-------------|-------|-----|
+| Public (`/api/auth/*`, `/api/journeys`, `/api/journeys/{id}`) | 50 requests per minute | 100 | IP address |
+| Driver | 250 requests per minute | 500 | User ID |
+| Traveller | 50 requests per minute | 100 | User ID |
 
-| Role | Limit | Key |
-|------|-------|-----|
-| Admin | 500 requests per minute | User ID |
-| Driver | 250 requests per minute | User ID |
-| Traveller | 50 requests per minute | User ID |
+Admin routes only have the global limit.
 
 **Purpose**: Provides fair usage limits based on account type. Per-user keying ensures users behind shared IPs (NAT, corporate networks) each get their own quota.
 
 ### Response When Rate Limited
 
 - **Status**: `429 Too Many Requests`
+- **Body**: `{"error": "Too many requests"}`
 
 ---
 
@@ -746,13 +803,13 @@ Tokens expire after 24 hours. When a `401 Unauthorized` response is received, re
 
 ### Map Integration
 For the pickup point selection:
-1. Fetch cities from `/api/cities` to get center coordinates and allowed radius
+1. Take the origin city from the journey (`journey.origin_city`), which includes its center coordinates and allowed radius. (The full city list, `GET /api/admin/cities`, is admin-only.)
 2. Display a map centered on the origin city
 3. Draw a circle with the `pickup_radius_km` to show the valid area
 4. Validate the selected point is within the radius before submitting
 
 ### Role-Based UI
 Use the `role` field from the login response to show/hide features:
-- **traveller**: Journey list, booking, my bookings
-- **driver**: Assigned journeys, passenger pickup map
-- **admin**: Journey CRUD, user management (list/role/delete), booking management (view/delete/update)
+- **Traveller**: Journey list, booking, my bookings
+- **Driver**: Assigned journeys, passenger pickup map
+- **Admin**: Journey CRUD, user management (list/role/delete), booking management (view/delete/update)

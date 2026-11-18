@@ -1,12 +1,10 @@
-use axum::{
-    extract::{Path, State},
-    Extension, Json,
-};
+use axum::{extract::State, Extension};
 use chrono::{DateTime, Utc};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::extract::{Json, Path};
 use crate::entities::{booking, city, journey};
 use crate::error::{AppError, AppResult};
 use crate::utils::geo::is_within_radius;

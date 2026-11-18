@@ -1,4 +1,4 @@
-use axum::{extract::State, Extension};
+use axum::{extract::State, http::StatusCode, Extension};
 use chrono::{DateTime, Utc};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
@@ -168,7 +168,7 @@ pub async fn create_booking(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(payload): Json<CreateBookingRequest>,
-) -> AppResult<Json<BookingResponse>> {
+) -> AppResult<StatusCode> {
     // Validate journey
     let journey = journey::Entity::find_by_id(payload.journey_id)
         .one(&state.db)
@@ -247,23 +247,9 @@ pub async fn create_booking(
         ..Default::default()
     };
 
-    let booking = new_booking.insert(&state.db).await?;
+    new_booking.insert(&state.db).await?;
 
-    let cities = city::Entity::find().all(&state.db).await?;
-    let origin = cities.iter().find(|c| c.id == journey.origin_city_id);
-    let dest = cities.iter().find(|c| c.id == journey.destination_city_id);
-
-    Ok(Json(BookingResponse {
-        id: booking.id,
-        journey_id: journey.id,
-        origin_city: origin.map(|c| c.name.clone()).unwrap_or_default(),
-        destination_city: dest.map(|c| c.name.clone()).unwrap_or_default(),
-        departure_time: journey.departure_time.with_timezone(&Utc),
-        seats: booking.seats,
-        pickup_lat: booking.pickup_lat,
-        pickup_lng: booking.pickup_lng,
-        created_at: booking.created_at.with_timezone(&Utc),
-    }))
+    Ok(StatusCode::CREATED)
 }
 
 /// List user's bookings
@@ -308,7 +294,7 @@ pub async fn cancel_booking(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(booking_id): Path<Uuid>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<StatusCode> {
     let booking = booking::Entity::find_by_id(booking_id)
         .one(&state.db)
         .await?
@@ -338,5 +324,5 @@ pub async fn cancel_booking(
         .exec(&state.db)
         .await?;
 
-    Ok(Json(serde_json::json!({ "message": "Booking cancelled" })))
+    Ok(StatusCode::NO_CONTENT)
 }

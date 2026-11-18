@@ -1,4 +1,4 @@
-use axum::extract::State;
+use axum::{extract::State, http::StatusCode};
 use chrono::{DateTime, Utc};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
@@ -113,7 +113,7 @@ pub async fn list_journeys(State(state): State<AppState>) -> AppResult<Json<Vec<
 pub async fn create_journey(
     State(state): State<AppState>,
     Json(payload): Json<CreateJourneyRequest>,
-) -> AppResult<Json<journey::Model>> {
+) -> AppResult<StatusCode> {
     // Validate cities
     let origin = city::Entity::find_by_id(payload.origin_city_id)
         .one(&state.db)
@@ -141,8 +141,9 @@ pub async fn create_journey(
         ..Default::default()
     };
 
-    let result = journey.insert(&state.db).await?;
-    Ok(Json(result))
+    journey.insert(&state.db).await?;
+
+    Ok(StatusCode::CREATED)
 }
 
 /// Update a journey (admin)
@@ -150,7 +151,7 @@ pub async fn update_journey(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateJourneyRequest>,
-) -> AppResult<Json<journey::Model>> {
+) -> AppResult<StatusCode> {
     let journey = journey::Entity::find_by_id(id)
         .one(&state.db)
         .await?
@@ -182,22 +183,23 @@ pub async fn update_journey(
         active.total_seats = Set(seats);
     }
 
-    let result = active.update(&state.db).await?;
-    Ok(Json(result))
+    active.update(&state.db).await?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Delete a journey (admin)
 pub async fn delete_journey(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<StatusCode> {
     let result = journey::Entity::delete_by_id(id).exec(&state.db).await?;
 
     if result.rows_affected == 0 {
         return Err(AppError::NotFound("Journey not found".to_string()));
     }
 
-    Ok(Json(serde_json::json!({ "message": "Journey deleted" })))
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Assign a driver to a journey (admin)
@@ -210,7 +212,7 @@ pub async fn assign_driver(
     State(state): State<AppState>,
     Path(journey_id): Path<Uuid>,
     Json(payload): Json<AssignDriverRequest>,
-) -> AppResult<Json<journey::Model>> {
+) -> AppResult<StatusCode> {
     // Validate driver exists and has driver role
     let driver = user::Entity::find_by_id(payload.driver_id)
         .one(&state.db)
@@ -230,8 +232,9 @@ pub async fn assign_driver(
     let mut active: journey::ActiveModel = journey.into();
     active.driver_id = Set(Some(payload.driver_id));
 
-    let result = active.update(&state.db).await?;
-    Ok(Json(result))
+    active.update(&state.db).await?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // ============ User Management ============
@@ -302,7 +305,7 @@ pub async fn update_user_role(
     State(state): State<AppState>,
     Path(user_id): Path<Uuid>,
     Json(payload): Json<UpdateRoleRequest>,
-) -> AppResult<Json<UserResponse>> {
+) -> AppResult<StatusCode> {
     let user = user::Entity::find_by_id(user_id)
         .one(&state.db)
         .await?
@@ -334,22 +337,16 @@ pub async fn update_user_role(
 
     let mut active: user::ActiveModel = user.into();
     active.role = Set(payload.role.clone());
-    let updated = active.update(&state.db).await?;
+    active.update(&state.db).await?;
 
-    Ok(Json(UserResponse {
-        id: updated.id,
-        email: updated.email,
-        name: updated.name,
-        role: updated.role,
-        created_at: updated.created_at.with_timezone(&Utc),
-    }))
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Delete any user account (admin)
 pub async fn delete_user(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<StatusCode> {
     let user = user::Entity::find_by_id(id)
         .one(&state.db)
         .await?
@@ -378,7 +375,7 @@ pub async fn delete_user(
     // Delete user
     user::Entity::delete_by_id(id).exec(&state.db).await?;
 
-    Ok(Json(serde_json::json!({ "message": "User deleted" })))
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // ============ Bookings Management (Admin) ============
@@ -426,7 +423,7 @@ pub async fn list_all_bookings(
 pub async fn delete_booking(
     State(state): State<AppState>,
     Path(booking_id): Path<Uuid>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<StatusCode> {
     let result = booking::Entity::delete_by_id(booking_id)
         .exec(&state.db)
         .await?;
@@ -435,7 +432,7 @@ pub async fn delete_booking(
         return Err(AppError::NotFound("Booking not found".to_string()));
     }
 
-    Ok(Json(serde_json::json!({ "message": "Booking deleted" })))
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Update booking (admin) - can change pickup point and/or seats
@@ -450,7 +447,7 @@ pub async fn update_booking(
     State(state): State<AppState>,
     Path(booking_id): Path<Uuid>,
     Json(payload): Json<UpdateBookingRequest>,
-) -> AppResult<Json<BookingInfo>> {
+) -> AppResult<StatusCode> {
     let booking_record = booking::Entity::find_by_id(booking_id)
         .one(&state.db)
         .await?
@@ -476,23 +473,9 @@ pub async fn update_booking(
         active.seats = Set(new_seats);
     }
 
-    let updated = active.update(&state.db).await?;
+    active.update(&state.db).await?;
 
-    // Get user info for response
-    let user = user::Entity::find_by_id(updated.user_id)
-        .one(&state.db)
-        .await?;
-
-    Ok(Json(BookingInfo {
-        id: updated.id,
-        journey_id: updated.journey_id,
-        user_name: user.as_ref().map(|u| u.name.clone()).unwrap_or_default(),
-        user_email: user.as_ref().map(|u| u.email.clone()).unwrap_or_default(),
-        seats: updated.seats,
-        pickup_lat: updated.pickup_lat,
-        pickup_lng: updated.pickup_lng,
-        created_at: updated.created_at.with_timezone(&Utc),
-    }))
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // ============ Journey Passengers (for admin view) ============

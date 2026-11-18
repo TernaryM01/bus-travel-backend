@@ -2,7 +2,7 @@ use argon2::{
     Argon2,
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
 };
-use axum::extract::State;
+use axum::{extract::State, http::StatusCode};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -49,7 +49,7 @@ pub struct UserInfo {
 pub async fn register(
     State(state): State<AppState>,
     Json(payload): Json<RegisterRequest>,
-) -> AppResult<Json<AuthResponse>> {
+) -> AppResult<(StatusCode, Json<AuthResponse>)> {
     // Check if email already exists
     let existing = user::Entity::find()
         .filter(user::Column::Email.eq(&payload.email))
@@ -91,7 +91,7 @@ pub async fn register(
         state.config.jwt_expiration_hours,
     )?;
 
-    Ok(Json(AuthResponse {
+    Ok((StatusCode::CREATED, Json(AuthResponse {
         token,
         user: UserInfo {
             id: user.id,
@@ -99,7 +99,7 @@ pub async fn register(
             name: user.name,
             role: user.role,
         },
-    }))
+    })))
 }
 
 /// Login with email and password

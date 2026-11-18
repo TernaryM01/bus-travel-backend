@@ -15,12 +15,10 @@ Tokens are obtained from the register and login endpoints and expire after 24 ho
 ## Response Format
 
 ### Success Response
-```json
-{
-  "id": "uuid",
-  "field": "value"
-}
-```
+- **Reads and logins** return `200 OK` with a JSON body.
+- **Register** returns `201 Created` with a JSON body (the token and user).
+- **Other creates** (journeys, bookings) return `201 Created` with no body.
+- **Updates and deletes** return `204 No Content` with no body.
 
 ### Error Response
 Every error response has this shape, including malformed requests, unknown routes and rate limiting:
@@ -33,7 +31,9 @@ Every error response has this shape, including malformed requests, unknown route
 ### HTTP Status Codes
 | Code | Meaning |
 |------|---------|
-| 200 | Success |
+| 200 | OK - Request succeeded, body included |
+| 201 | Created - Resource created |
+| 204 | No Content - Update or delete succeeded, no body |
 | 400 | Bad Request - Invalid input, malformed JSON, or invalid ID in the URL |
 | 401 | Unauthorized - Missing, malformed, invalid or expired token; wrong login |
 | 403 | Forbidden - Insufficient permissions |
@@ -124,7 +124,7 @@ POST /api/auth/register
 }
 ```
 
-**Response:** `200 OK`
+**Response:** `201 Created`
 ```json
 {
   "token": "eyJhbGciOiJIUzI1NiIs...",
@@ -269,20 +269,7 @@ POST /api/bookings
 }
 ```
 
-**Response:** `200 OK`
-```json
-{
-  "id": "660e8400-e29b-41d4-a716-446655440001",
-  "journey_id": "550e8400-e29b-41d4-a716-446655440000",
-  "origin_city": "Kupang",
-  "destination_city": "Soe",
-  "departure_time": "2024-01-15T08:00:00Z",
-  "seats": 2,
-  "pickup_lat": -10.18,
-  "pickup_lng": 123.62,
-  "created_at": "2024-01-10T10:30:00Z"
-}
-```
+**Response:** `201 Created` (no body)
 
 **Errors:**
 - `400 Bad Request`:
@@ -326,12 +313,7 @@ GET /api/bookings
 DELETE /api/bookings/{id}
 ```
 
-**Response:** `200 OK`
-```json
-{
-  "message": "Booking cancelled"
-}
-```
+**Response:** `204 No Content`
 
 **Errors:**
 - `400 Bad Request`: Cannot cancel past journey bookings
@@ -481,18 +463,7 @@ POST /api/admin/journeys
 }
 ```
 
-**Response:** `200 OK`
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "origin_city_id": 1,
-  "destination_city_id": 2,
-  "departure_time": "2024-01-15T08:00:00Z",
-  "total_seats": 40,
-  "driver_id": null,
-  "created_at": "2024-01-10T10:30:00Z"
-}
-```
+**Response:** `201 Created` (no body)
 
 **Errors:**
 - `400 Bad Request`: Invalid city ID or same origin/destination
@@ -515,7 +486,7 @@ PUT /api/admin/journeys/{id}
 }
 ```
 
-**Response:** `200 OK`
+**Response:** `204 No Content`
 
 **Errors:**
 - `400 Bad Request`: Invalid city ID
@@ -529,12 +500,7 @@ PUT /api/admin/journeys/{id}
 DELETE /api/admin/journeys/{id}
 ```
 
-**Response:** `200 OK`
-```json
-{
-  "message": "Journey deleted"
-}
-```
+**Response:** `204 No Content`
 
 > ⚠️ Deleting a journey also deletes all associated bookings (cascade).
 
@@ -553,7 +519,7 @@ POST /api/admin/journeys/{id}/assign-driver
 }
 ```
 
-**Response:** `200 OK`, with `driver_id` set.
+**Response:** `204 No Content`
 
 **Errors:**
 - `400 Bad Request`: User is not a driver
@@ -636,16 +602,7 @@ PUT /api/admin/users/{id}/role
 }
 ```
 
-**Response:** `200 OK`
-```json
-{
-  "id": "770e8400-e29b-41d4-a716-446655440003",
-  "email": "user@example.com",
-  "name": "User Name",
-  "role": "Driver",
-  "created_at": "2024-01-01T00:00:00Z"
-}
-```
+**Response:** `204 No Content`
 
 > ⚠️ When changing from driver role, user is unassigned from all journeys. When changing from traveller role, user's bookings are deleted.
 
@@ -663,12 +620,7 @@ Delete any user account (including admins).
 DELETE /api/admin/users/{id}
 ```
 
-**Response:** `200 OK`
-```json
-{
-  "message": "User deleted"
-}
-```
+**Response:** `204 No Content`
 
 > ⚠️ When deleted: drivers are unassigned from journeys, travellers have their bookings deleted.
 
@@ -709,12 +661,7 @@ Delete any booking.
 DELETE /api/admin/bookings/{id}
 ```
 
-**Response:** `200 OK`
-```json
-{
-  "message": "Booking deleted"
-}
-```
+**Response:** `204 No Content`
 
 **Errors:**
 - `404 Not Found`: Booking not found
@@ -738,19 +685,7 @@ PUT /api/admin/bookings/{id}
 }
 ```
 
-**Response:** `200 OK`
-```json
-{
-  "id": "660e8400-e29b-41d4-a716-446655440001",
-  "journey_id": "550e8400-e29b-41d4-a716-446655440000",
-  "user_name": "John Doe",
-  "user_email": "john@example.com",
-  "seats": 3,
-  "pickup_lat": -10.17,
-  "pickup_lng": 123.64,
-  "created_at": "2024-01-10T10:30:00Z"
-}
-```
+**Response:** `204 No Content`
 
 **Errors:**
 - `400 Bad Request`: Seats must be positive

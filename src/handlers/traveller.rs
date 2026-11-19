@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::extract::{Json, Path};
+use crate::entities::journey::JourneyStatus;
 use crate::entities::{booking, city, journey};
 use crate::error::{AppError, AppResult};
 use crate::utils::geo::is_within_radius;
@@ -45,6 +46,11 @@ pub async fn list_journeys(
     for j in journeys {
         // Skip past journeys
         if j.departure_time.with_timezone(&Utc) < now {
+            continue;
+        }
+
+        // Skip journeys whose pickup has started (they no longer take bookings)
+        if j.status != JourneyStatus::Scheduled {
             continue;
         }
 
@@ -172,6 +178,7 @@ pub struct BookingResponse {
     pub origin_city: String,
     pub destination_city: String,
     pub departure_time: DateTime<Utc>,
+    pub journey_status: JourneyStatus,
     pub seats: i32,
     pub pickup_lat: f64,
     pub pickup_lng: f64,
@@ -193,6 +200,13 @@ pub async fn create_booking(
     // Check journey is in the future
     if journey.departure_time.with_timezone(&Utc) < Utc::now() {
         return Err(AppError::BadRequest("Perjalanan yang sudah lewat tidak dapat dipesan".to_string()));
+    }
+
+    // Bookings close once the driver starts picking up passengers
+    if journey.status != JourneyStatus::Scheduled {
+        return Err(AppError::Conflict(
+            "Perjalanan ini sudah tidak menerima pemesanan".to_string(),
+        ));
     }
 
     // Check seat availability
@@ -293,6 +307,7 @@ pub async fn my_bookings(
                 origin_city: origin.map(|c| c.name.clone()).unwrap_or_default(),
                 destination_city: dest.map(|c| c.name.clone()).unwrap_or_default(),
                 departure_time: journey.departure_time.with_timezone(&Utc),
+                journey_status: journey.status,
                 seats: b.seats,
                 pickup_lat: b.pickup_lat,
                 pickup_lng: b.pickup_lng,
@@ -331,6 +346,13 @@ pub async fn cancel_booking(
         if j.departure_time.with_timezone(&Utc) < Utc::now() {
             return Err(AppError::BadRequest(
                 "Pesanan untuk perjalanan yang sudah lewat tidak dapat dibatalkan".to_string(),
+            ));
+        }
+
+        // The passenger list is fixed once the driver starts picking up passengers
+        if j.status != JourneyStatus::Scheduled {
+            return Err(AppError::Conflict(
+                "Pesanan tidak dapat dibatalkan setelah penjemputan dimulai".to_string(),
             ));
         }
     }

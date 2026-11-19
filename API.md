@@ -40,7 +40,7 @@ Error messages are in Indonesian and are meant to be shown to the user as they a
 | 403 | Forbidden - Insufficient permissions |
 | 404 | Not Found - Resource or route doesn't exist |
 | 405 | Method Not Allowed - Route exists, but not with this HTTP method |
-| 409 | Conflict - Resource already exists |
+| 409 | Conflict - Resource already exists, or the action isn't allowed in the resource's current state |
 | 415 | Unsupported Media Type - Body sent without `Content-Type: application/json` |
 | 422 | Unprocessable Entity - JSON body has missing fields or wrong value types |
 | 429 | Too Many Requests - Rate limited |
@@ -216,7 +216,7 @@ POST /api/auth/google
 
 ### List Available Journeys
 
-Returns journeys that haven't departed yet, including full ones (`available_seats: 0`).
+Returns journeys that haven't departed yet and whose status is still `Scheduled`, including full ones (`available_seats: 0`).
 
 ```
 GET /api/journeys
@@ -300,7 +300,9 @@ POST /api/bookings
   - Past journey
   - Pickup point outside allowed radius
 - `404 Not Found`: Journey not found
-- `409 Conflict`: Already booked this journey
+- `409 Conflict`:
+  - Already booked this journey
+  - Journey is no longer `Scheduled` (the driver has started picking up passengers)
 
 ---
 
@@ -319,6 +321,7 @@ GET /api/bookings
     "origin_city": "Kupang",
     "destination_city": "Soe",
     "departure_time": "2024-01-15T08:00:00Z",
+    "journey_status": "Scheduled",
     "seats": 2,
     "pickup_lat": -10.18,
     "pickup_lng": 123.62,
@@ -341,6 +344,7 @@ DELETE /api/bookings/{id}
 - `400 Bad Request`: Cannot cancel past journey bookings
 - `403 Forbidden`: Not your booking
 - `404 Not Found`: Booking not found
+- `409 Conflict`: Journey is no longer `Scheduled` (the driver has started picking up passengers)
 
 ---
 
@@ -427,6 +431,58 @@ GET /api/driver/journeys/{id}/passengers
 **Errors:**
 - `403 Forbidden`: Not assigned to this journey
 - `404 Not Found`: Journey not found
+
+---
+
+### Update Journey Status
+
+Move the journey one stage forwards or backwards: `Scheduled` ↔ `PickingUp` ↔ `InTransit` ↔ `Finished`. Going back undoes a mistaken tap.
+
+```
+PUT /api/driver/journeys/{id}/status
+```
+
+**Request Body:**
+```json
+{
+  "status": "PickingUp"
+}
+```
+
+**Response:** `204 No Content`
+
+**Errors:**
+- `403 Forbidden`: Not assigned to this journey
+- `404 Not Found`: Journey not found
+- `409 Conflict`:
+  - Not exactly one stage away from the current status (skipping a stage, or the same status)
+  - Moving to `InTransit` while a passenger's pickup status is still `Pending`
+- `422 Unprocessable Entity`: Unknown status value
+
+---
+
+### Update Passenger Pickup Status
+
+Set a passenger's pickup status to any of `Pending`, `PickedUp` or `NoShow`. Only while the journey is `PickingUp`.
+
+```
+PUT /api/driver/journeys/{id}/passengers/{booking_id}/pickup-status
+```
+
+**Request Body:**
+```json
+{
+  "pickup_status": "PickedUp"
+}
+```
+
+**Response:** `204 No Content`
+
+**Errors:**
+- `403 Forbidden`: Not assigned to this journey
+- `404 Not Found`: Journey not found, or booking not found in this journey
+- `409 Conflict`: Journey is not `PickingUp`
+- `422 Unprocessable Entity`: Unknown pickup status value
 
 ---
 

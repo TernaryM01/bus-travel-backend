@@ -66,6 +66,12 @@ pub fn create_router(state: AppState) -> Router {
     let driver_routes = Router::new()
         .route("/journeys", get(driver::my_journeys))
         .route("/journeys/{id}/passengers", get(driver::journey_passengers))
+        // Pickup process
+        .route("/journeys/{id}/status", put(driver::update_journey_status))
+        .route(
+            "/journeys/{id}/passengers/{booking_id}/pickup-status",
+            put(driver::update_pickup_status),
+        )
         .layer(driver_governor)
         .layer(middleware::from_fn(require_driver))
         .layer(middleware::from_fn_with_state(

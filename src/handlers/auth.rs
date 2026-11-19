@@ -57,7 +57,7 @@ pub async fn register(
         .await?;
 
     if existing.is_some() {
-        return Err(AppError::Conflict("Email already registered".to_string()));
+        return Err(AppError::Conflict("Email sudah terdaftar".to_string()));
     }
 
     // Hash password
@@ -112,12 +112,12 @@ pub async fn login(
         .filter(user::Column::Email.eq(&payload.email))
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::Unauthorized("Invalid email or password".to_string()))?;
+        .ok_or_else(|| AppError::Unauthorized("Email atau password salah".to_string()))?;
 
     // Verify password (handle Google-only accounts)
     let password_hash = user.password_hash.as_ref().ok_or_else(|| {
         AppError::Unauthorized(
-            "This account uses Google login. Please sign in with Google.".to_string(),
+            "Akun ini menggunakan login Google. Silakan login dengan Google.".to_string(),
         )
     })?;
 
@@ -126,7 +126,7 @@ pub async fn login(
 
     Argon2::default()
         .verify_password(payload.password.as_bytes(), &parsed_hash)
-        .map_err(|_| AppError::Unauthorized("Invalid email or password".to_string()))?;
+        .map_err(|_| AppError::Unauthorized("Email atau password salah".to_string()))?;
 
     // Generate token
     let token = create_token(
@@ -171,7 +171,7 @@ pub async fn google_login(
         .map_err(|e| AppError::Internal(format!("Failed to verify Google token: {}", e)))?;
 
     if !resp.status().is_success() {
-        return Err(AppError::Unauthorized("Invalid Google token".to_string()));
+        return Err(AppError::Unauthorized("Token Google tidak valid".to_string()));
     }
 
     let token_info: GoogleTokenInfo = resp
@@ -181,7 +181,7 @@ pub async fn google_login(
 
     // Verify audience matches our client ID
     if token_info.aud != state.config.oauth_client_id {
-        return Err(AppError::Unauthorized("Invalid token audience".to_string()));
+        return Err(AppError::Unauthorized("Token Google tidak valid untuk aplikasi ini".to_string()));
     }
 
     // Find existing user by google_id or email

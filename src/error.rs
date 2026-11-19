@@ -38,13 +38,22 @@ pub enum AppError {
 
 impl From<JsonRejection> for AppError {
     fn from(rejection: JsonRejection) -> Self {
-        AppError::Status(rejection.status(), rejection.body_text())
+        let message = match &rejection {
+            JsonRejection::MissingJsonContentType(_) => "Permintaan harus berformat JSON",
+            JsonRejection::JsonSyntaxError(_) => "Format JSON tidak valid",
+            JsonRejection::JsonDataError(_) => "Data yang dikirim tidak lengkap atau formatnya salah",
+            _ => "Permintaan tidak dapat dibaca",
+        };
+        // axum's own explanation is English and technical: keep it for the log only.
+        tracing::debug!("Rejected request body: {}", rejection.body_text());
+        AppError::Status(rejection.status(), message.to_string())
     }
 }
 
 impl From<PathRejection> for AppError {
     fn from(rejection: PathRejection) -> Self {
-        AppError::Status(rejection.status(), rejection.body_text())
+        tracing::debug!("Rejected request path: {}", rejection.body_text());
+        AppError::Status(rejection.status(), "Alamat (URL) tidak valid".to_string())
     }
 }
 
@@ -53,7 +62,7 @@ impl IntoResponse for AppError {
         let (status, message) = match &self {
             AppError::Database(e) => {
                 tracing::error!("Database error: {:?}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (StatusCode::INTERNAL_SERVER_ERROR, "Terjadi kesalahan pada server".to_string())
             }
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
@@ -62,7 +71,7 @@ impl IntoResponse for AppError {
             AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
             AppError::Internal(msg) => {
                 tracing::error!("Internal error: {}", msg);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (StatusCode::INTERNAL_SERVER_ERROR, "Terjadi kesalahan pada server".to_string())
             }
             AppError::Status(status, msg) => (*status, msg.clone()),
         };

@@ -24,9 +24,10 @@ Tokens are obtained from the register and login endpoints and expire after 24 ho
 Every error response has this shape, including malformed requests, unknown routes and rate limiting:
 ```json
 {
-  "error": "Error message"
+  "error": "Perjalanan tidak ditemukan"
 }
 ```
+Error messages are in Indonesian and are meant to be shown to the user as they are.
 
 ### HTTP Status Codes
 | Code | Meaning |
@@ -724,7 +725,7 @@ Admin routes only have the global limit.
 ### Response When Rate Limited
 
 - **Status**: `429 Too Many Requests`
-- **Body**: `{"error": "Too many requests"}`
+- **Body**: `{"error": "Terlalu banyak permintaan. Silakan coba lagi sebentar lagi."}`
 
 ---
 

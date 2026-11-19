@@ -99,9 +99,9 @@ pub fn create_router(state: AppState) -> Router {
 }
 
 async fn not_found() -> AppError {
-    AppError::NotFound("Route not found".to_string())
+    AppError::NotFound("Alamat tidak ditemukan".to_string())
 }
 
 async fn method_not_allowed() -> AppError {
-    AppError::Status(StatusCode::METHOD_NOT_ALLOWED, "Method not allowed".to_string())
+    AppError::Status(StatusCode::METHOD_NOT_ALLOWED, "Metode tidak diizinkan".to_string())
 }

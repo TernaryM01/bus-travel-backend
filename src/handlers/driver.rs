@@ -86,11 +86,11 @@ pub async fn journey_passengers(
     let journey = journey::Entity::find_by_id(journey_id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::NotFound("Journey not found".to_string()))?;
+        .ok_or_else(|| AppError::NotFound("Perjalanan tidak ditemukan".to_string()))?;
 
     if journey.driver_id != Some(claims.sub) {
         return Err(AppError::Forbidden(
-            "You are not assigned to this journey".to_string(),
+            "Anda tidak ditugaskan pada perjalanan ini".to_string(),
         ));
     }
 

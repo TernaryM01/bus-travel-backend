@@ -24,7 +24,7 @@ pub async fn auth_middleware(
     // A missing or non-Bearer header is an authentication failure (401),
     // same as a bad token, rather than axum's default plain-text 400.
     let TypedHeader(auth) = auth.map_err(|_| {
-        AppError::Unauthorized("Missing or invalid Authorization header".to_string())
+        AppError::Unauthorized("Anda belum login atau sesi login tidak valid. Silakan login kembali.".to_string())
     })?;
     let claims = verify_token(auth.token(), &state.config.jwt_secret)?;
     request.extensions_mut().insert(claims);
@@ -39,10 +39,10 @@ pub async fn require_admin(
     let claims = request
         .extensions()
         .get::<Claims>()
-        .ok_or_else(|| AppError::Unauthorized("No authentication found".to_string()))?;
+        .ok_or_else(|| AppError::Unauthorized("Autentikasi tidak ditemukan. Silakan login kembali.".to_string()))?;
 
     if claims.role != UserRole::Admin {
-        return Err(AppError::Forbidden("Admin access required".to_string()));
+        return Err(AppError::Forbidden("Akses khusus admin".to_string()));
     }
 
     Ok(next.run(request).await)
@@ -56,10 +56,10 @@ pub async fn require_driver(
     let claims = request
         .extensions()
         .get::<Claims>()
-        .ok_or_else(|| AppError::Unauthorized("No authentication found".to_string()))?;
+        .ok_or_else(|| AppError::Unauthorized("Autentikasi tidak ditemukan. Silakan login kembali.".to_string()))?;
 
     if claims.role != UserRole::Driver {
-        return Err(AppError::Forbidden("Driver access required".to_string()));
+        return Err(AppError::Forbidden("Akses khusus sopir".to_string()));
     }
 
     Ok(next.run(request).await)
@@ -73,10 +73,10 @@ pub async fn require_traveller(
     let claims = request
         .extensions()
         .get::<Claims>()
-        .ok_or_else(|| AppError::Unauthorized("No authentication found".to_string()))?;
+        .ok_or_else(|| AppError::Unauthorized("Autentikasi tidak ditemukan. Silakan login kembali.".to_string()))?;
 
     if claims.role != UserRole::Traveller {
-        return Err(AppError::Forbidden("Traveller access required".to_string()));
+        return Err(AppError::Forbidden("Akses khusus penumpang".to_string()));
     }
 
     Ok(next.run(request).await)

@@ -22,7 +22,7 @@ pub fn rate_limit_error_handler(err: GovernorError) -> Response<Body> {
                 status = %StatusCode::TOO_MANY_REQUESTS,
                 "Rate limited - request rejected due to too many requests"
             );
-            AppError::Status(StatusCode::TOO_MANY_REQUESTS, "Too many requests".to_string())
+            AppError::Status(StatusCode::TOO_MANY_REQUESTS, "Terlalu banyak permintaan. Silakan coba lagi sebentar lagi.".to_string())
                 .into_response()
         }
         _ => {
@@ -32,7 +32,7 @@ pub fn rate_limit_error_handler(err: GovernorError) -> Response<Body> {
             );
             AppError::Status(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal server error".to_string(),
+                "Terjadi kesalahan pada server".to_string(),
             )
             .into_response()
         }

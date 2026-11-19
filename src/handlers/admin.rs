@@ -118,16 +118,16 @@ pub async fn create_journey(
     let origin = city::Entity::find_by_id(payload.origin_city_id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::BadRequest("Invalid origin city".to_string()))?;
+        .ok_or_else(|| AppError::BadRequest("Kota asal tidak valid".to_string()))?;
 
     let dest = city::Entity::find_by_id(payload.destination_city_id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::BadRequest("Invalid destination city".to_string()))?;
+        .ok_or_else(|| AppError::BadRequest("Kota tujuan tidak valid".to_string()))?;
 
     if origin.id == dest.id {
         return Err(AppError::BadRequest(
-            "Origin and destination must be different".to_string(),
+            "Kota asal dan tujuan harus berbeda".to_string(),
         ));
     }
 
@@ -155,7 +155,7 @@ pub async fn update_journey(
     let journey = journey::Entity::find_by_id(id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::NotFound("Journey not found".to_string()))?;
+        .ok_or_else(|| AppError::NotFound("Perjalanan tidak ditemukan".to_string()))?;
 
     let mut active: journey::ActiveModel = journey.into();
 
@@ -163,7 +163,7 @@ pub async fn update_journey(
         city::Entity::find_by_id(origin_id)
             .one(&state.db)
             .await?
-            .ok_or_else(|| AppError::BadRequest("Invalid origin city".to_string()))?;
+            .ok_or_else(|| AppError::BadRequest("Kota asal tidak valid".to_string()))?;
         active.origin_city_id = Set(origin_id);
     }
 
@@ -171,7 +171,7 @@ pub async fn update_journey(
         city::Entity::find_by_id(dest_id)
             .one(&state.db)
             .await?
-            .ok_or_else(|| AppError::BadRequest("Invalid destination city".to_string()))?;
+            .ok_or_else(|| AppError::BadRequest("Kota tujuan tidak valid".to_string()))?;
         active.destination_city_id = Set(dest_id);
     }
 
@@ -196,7 +196,7 @@ pub async fn delete_journey(
     let result = journey::Entity::delete_by_id(id).exec(&state.db).await?;
 
     if result.rows_affected == 0 {
-        return Err(AppError::NotFound("Journey not found".to_string()));
+        return Err(AppError::NotFound("Perjalanan tidak ditemukan".to_string()));
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -217,17 +217,17 @@ pub async fn assign_driver(
     let driver = user::Entity::find_by_id(payload.driver_id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::NotFound("Driver not found".to_string()))?;
+        .ok_or_else(|| AppError::NotFound("Sopir tidak ditemukan".to_string()))?;
 
     if driver.role != UserRole::Driver {
-        return Err(AppError::BadRequest("User is not a driver".to_string()));
+        return Err(AppError::BadRequest("Pengguna ini bukan sopir".to_string()));
     }
 
     // Get journey
     let journey = journey::Entity::find_by_id(journey_id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::NotFound("Journey not found".to_string()))?;
+        .ok_or_else(|| AppError::NotFound("Perjalanan tidak ditemukan".to_string()))?;
 
     let mut active: journey::ActiveModel = journey.into();
     active.driver_id = Set(Some(payload.driver_id));
@@ -309,7 +309,7 @@ pub async fn update_user_role(
     let user = user::Entity::find_by_id(user_id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+        .ok_or_else(|| AppError::NotFound("Pengguna tidak ditemukan".to_string()))?;
 
     let old_role = user.role.clone();
 
@@ -350,7 +350,7 @@ pub async fn delete_user(
     let user = user::Entity::find_by_id(id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+        .ok_or_else(|| AppError::NotFound("Pengguna tidak ditemukan".to_string()))?;
 
     // Handle cleanup based on role
     if user.role == UserRole::Driver {
@@ -429,7 +429,7 @@ pub async fn delete_booking(
         .await?;
 
     if result.rows_affected == 0 {
-        return Err(AppError::NotFound("Booking not found".to_string()));
+        return Err(AppError::NotFound("Pesanan tidak ditemukan".to_string()));
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -451,7 +451,7 @@ pub async fn update_booking(
     let booking_record = booking::Entity::find_by_id(booking_id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::NotFound("Booking not found".to_string()))?;
+        .ok_or_else(|| AppError::NotFound("Pesanan tidak ditemukan".to_string()))?;
 
     let mut active: booking::ActiveModel = booking_record.clone().into();
 
@@ -467,7 +467,7 @@ pub async fn update_booking(
     // Update seats (admin can overbook)
     if let Some(new_seats) = payload.seats {
         if new_seats <= 0 {
-            return Err(AppError::BadRequest("Seats must be positive".to_string()));
+            return Err(AppError::BadRequest("Jumlah kursi harus minimal 1".to_string()));
         }
 
         active.seats = Set(new_seats);
@@ -509,7 +509,7 @@ pub async fn journey_passengers(
     let journey = journey::Entity::find_by_id(journey_id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::NotFound("Journey not found".to_string()))?;
+        .ok_or_else(|| AppError::NotFound("Perjalanan tidak ditemukan".to_string()))?;
 
     let cities = city::Entity::find().all(&state.db).await?;
     let origin = cities.iter().find(|c| c.id == journey.origin_city_id);

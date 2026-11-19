@@ -48,5 +48,9 @@ pub fn verify_token(token: &str, secret: &str) -> AppResult<Claims> {
         &Validation::default(),
     )
     .map(|data| data.claims)
-    .map_err(|e| AppError::Unauthorized(format!("Invalid token: {}", e)))
+    .map_err(|_| {
+        AppError::Unauthorized(
+            "Sesi login tidak valid atau sudah berakhir. Silakan login kembali.".to_string(),
+        )
+    })
 }

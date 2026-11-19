@@ -98,7 +98,7 @@ pub async fn get_journey(
     let journey = journey::Entity::find_by_id(journey_id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::NotFound("Journey not found".to_string()))?;
+        .ok_or_else(|| AppError::NotFound("Perjalanan tidak ditemukan".to_string()))?;
 
     let cities = city::Entity::find().all(&state.db).await?;
     let origin = cities
@@ -173,11 +173,11 @@ pub async fn create_booking(
     let journey = journey::Entity::find_by_id(payload.journey_id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::NotFound("Journey not found".to_string()))?;
+        .ok_or_else(|| AppError::NotFound("Perjalanan tidak ditemukan".to_string()))?;
 
     // Check journey is in the future
     if journey.departure_time.with_timezone(&Utc) < Utc::now() {
-        return Err(AppError::BadRequest("Cannot book past journeys".to_string()));
+        return Err(AppError::BadRequest("Perjalanan yang sudah lewat tidak dapat dipesan".to_string()));
     }
 
     // Check seat availability
@@ -192,14 +192,14 @@ pub async fn create_booking(
     let available = journey.total_seats - booked;
     if payload.seats > available {
         return Err(AppError::BadRequest(format!(
-            "Only {} seats available",
+            "Hanya tersisa {} kursi",
             available
         )));
     }
 
     if payload.seats <= 0 {
         return Err(AppError::BadRequest(
-            "Must book at least 1 seat".to_string(),
+            "Minimal memesan 1 kursi".to_string(),
         ));
     }
 
@@ -217,7 +217,7 @@ pub async fn create_booking(
         origin_city.pickup_radius_km,
     ) {
         return Err(AppError::BadRequest(format!(
-            "Pickup point must be within {} km of {} city center",
+            "Titik jemput harus dalam radius {} km dari pusat kota {}",
             origin_city.pickup_radius_km, origin_city.name
         )));
     }
@@ -231,7 +231,7 @@ pub async fn create_booking(
 
     if existing.is_some() {
         return Err(AppError::Conflict(
-            "You already have a booking for this journey".to_string(),
+            "Anda sudah memesan tiket untuk perjalanan ini".to_string(),
         ));
     }
 
@@ -298,12 +298,12 @@ pub async fn cancel_booking(
     let booking = booking::Entity::find_by_id(booking_id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::NotFound("Booking not found".to_string()))?;
+        .ok_or_else(|| AppError::NotFound("Pesanan tidak ditemukan".to_string()))?;
 
     // Verify ownership
     if booking.user_id != claims.sub {
         return Err(AppError::Forbidden(
-            "You can only cancel your own bookings".to_string(),
+            "Anda hanya dapat membatalkan pesanan Anda sendiri".to_string(),
         ));
     }
 
@@ -315,7 +315,7 @@ pub async fn cancel_booking(
     if let Some(j) = journey {
         if j.departure_time.with_timezone(&Utc) < Utc::now() {
             return Err(AppError::BadRequest(
-                "Cannot cancel bookings for past journeys".to_string(),
+                "Pesanan untuk perjalanan yang sudah lewat tidak dapat dibatalkan".to_string(),
             ));
         }
     }

@@ -80,8 +80,41 @@ async fn main() {
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
+    .with_graceful_shutdown(shutdown_signal())
     .await
     .expect("Failed to start server");
+
+    tracing::info!("Server stopped");
+}
+
+/// Resolves when the server should stop: Ctrl+C in a terminal, or SIGTERM,
+/// which hosting platforms send before stopping or redeploying the app.
+/// The server then stops accepting connections, lets requests already in
+/// progress finish, and exits normally.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to listen for Ctrl+C");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("Failed to listen for SIGTERM")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    tracing::info!("Shutting down: finishing requests in progress");
 }
 
 /// Seed the admin account if it doesn't exist

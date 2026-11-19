@@ -34,8 +34,10 @@ pub fn create_router(state: AppState) -> Router {
     // Admin routes (requires auth + admin role)
     // Rate limit: 1000 / 2 requests per minute (10x base)
     let admin_routes = Router::new()
-        // Journey management
+        // City management
         .route("/cities", get(admin::list_cities))
+        .route("/cities/{id}/station", put(admin::update_city_station))
+        // Journey management
         .route("/journeys", get(admin::list_journeys))
         .route("/journeys", post(admin::create_journey))
         .route("/journeys/{id}", put(admin::update_journey))

@@ -1,6 +1,19 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "journey_status")]
+pub enum JourneyStatus {
+    #[sea_orm(string_value = "scheduled")]
+    Scheduled,
+    #[sea_orm(string_value = "picking_up")]
+    PickingUp,
+    #[sea_orm(string_value = "in_transit")]
+    InTransit,
+    #[sea_orm(string_value = "finished")]
+    Finished,
+}
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "journey")]
 pub struct Model {
@@ -12,6 +25,7 @@ pub struct Model {
     pub total_seats: i32,
     pub driver_id: Option<Uuid>,
     pub created_at: DateTimeWithTimeZone,
+    pub status: JourneyStatus,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

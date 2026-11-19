@@ -5,8 +5,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::extract::{Json, Path};
+use crate::handlers::shared::{self, JourneyPassengersResponse};
 use crate::handlers::traveller::CityInfo;
 use crate::entities::{booking, city, journey, user};
+use crate::entities::journey::JourneyStatus;
 use crate::entities::user::UserRole;
 use crate::error::{AppError, AppResult};
 use crate::AppState;
@@ -38,6 +40,7 @@ pub struct JourneyResponse {
     pub total_seats: i32,
     pub booked_seats: i32,
     pub driver: Option<DriverInfo>,
+    pub status: JourneyStatus,
 }
 
 #[derive(Debug, Serialize)]
@@ -46,6 +49,18 @@ pub struct DriverInfo {
     pub name: String,
     pub email: String,
 }
+
+// ============ City Management ============
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateStationRequest {
+    pub station_name: String,
+    pub station_lat: f64,
+    pub station_lng: f64,
+}
+
+/// Maximum station name length, matching the `station_name` column
+const MAX_STATION_NAME_CHARS: usize = 100;
 
 /// List all cities
 pub async fn list_cities(State(state): State<AppState>) -> AppResult<Json<Vec<CityInfo>>> {
@@ -59,10 +74,49 @@ pub async fn list_cities(State(state): State<AppState>) -> AppResult<Json<Vec<Ci
             center_lat: c.center_lat,
             center_lng: c.center_lng,
             pickup_radius_km: c.pickup_radius_km,
+            station_name: c.station_name,
+            station_lat: c.station_lat,
+            station_lng: c.station_lng,
         })
         .collect();
 
     Ok(Json(responses))
+}
+
+/// Change a city's drop-off station (name and location)
+pub async fn update_city_station(
+    State(state): State<AppState>,
+    Path(city_id): Path<i32>,
+    Json(payload): Json<UpdateStationRequest>,
+) -> AppResult<StatusCode> {
+    let station_name = payload.station_name.trim();
+    if station_name.is_empty() {
+        return Err(AppError::BadRequest("Nama terminal tidak boleh kosong".to_string()));
+    }
+    if station_name.chars().count() > MAX_STATION_NAME_CHARS {
+        return Err(AppError::BadRequest(format!(
+            "Nama terminal maksimal {} karakter",
+            MAX_STATION_NAME_CHARS
+        )));
+    }
+    if !(-90.0..=90.0).contains(&payload.station_lat)
+        || !(-180.0..=180.0).contains(&payload.station_lng)
+    {
+        return Err(AppError::BadRequest("Koordinat terminal tidak valid".to_string()));
+    }
+
+    let city_record = city::Entity::find_by_id(city_id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Kota tidak ditemukan".to_string()))?;
+
+    let mut active: city::ActiveModel = city_record.into();
+    active.station_name = Set(station_name.to_string());
+    active.station_lat = Set(payload.station_lat);
+    active.station_lng = Set(payload.station_lng);
+    active.update(&state.db).await?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// List all journeys (admin)
@@ -103,6 +157,7 @@ pub async fn list_journeys(State(state): State<AppState>) -> AppResult<Json<Vec<
             total_seats: j.total_seats,
             booked_seats: booked,
             driver,
+            status: j.status,
         });
     }
 
@@ -480,25 +535,6 @@ pub async fn update_booking(
 
 // ============ Journey Passengers (for admin view) ============
 
-
-#[derive(Debug, Serialize)]
-pub struct PassengerPickupInfo {
-    pub booking_id: Uuid,
-    pub passenger_name: String,
-    pub seats: i32,
-    pub pickup_lat: f64,
-    pub pickup_lng: f64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct JourneyPassengersResponse {
-    pub journey_id: Uuid,
-    pub origin_city: String,
-    pub destination_city: String,
-    pub departure_time: DateTime<Utc>,
-    pub passengers: Vec<PassengerPickupInfo>,
-}
-
 /// Get passenger pickup points for a specific journey (admin)
 /// Unlike the driver version, this doesn't check if the admin is assigned to the journey
 pub async fn journey_passengers(
@@ -511,38 +547,5 @@ pub async fn journey_passengers(
         .await?
         .ok_or_else(|| AppError::NotFound("Perjalanan tidak ditemukan".to_string()))?;
 
-    let cities = city::Entity::find().all(&state.db).await?;
-    let origin = cities.iter().find(|c| c.id == journey.origin_city_id);
-    let dest = cities.iter().find(|c| c.id == journey.destination_city_id);
-
-    // Get all bookings for this journey
-    let bookings = booking::Entity::find()
-        .filter(booking::Column::JourneyId.eq(journey_id))
-        .all(&state.db)
-        .await?;
-
-    // Get user info for each booking
-    let users = user::Entity::find().all(&state.db).await?;
-
-    let passengers: Vec<PassengerPickupInfo> = bookings
-        .into_iter()
-        .map(|b| {
-            let user = users.iter().find(|u| u.id == b.user_id);
-            PassengerPickupInfo {
-                booking_id: b.id,
-                passenger_name: user.map(|u| u.name.clone()).unwrap_or_default(),
-                seats: b.seats,
-                pickup_lat: b.pickup_lat,
-                pickup_lng: b.pickup_lng,
-            }
-        })
-        .collect();
-
-    Ok(Json(JourneyPassengersResponse {
-        journey_id: journey.id,
-        origin_city: origin.map(|c| c.name.clone()).unwrap_or_default(),
-        destination_city: dest.map(|c| c.name.clone()).unwrap_or_default(),
-        departure_time: journey.departure_time.with_timezone(&Utc),
-        passengers,
-    }))
+    Ok(Json(shared::journey_passengers(&state.db, journey).await?))
 }

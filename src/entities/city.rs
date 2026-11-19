@@ -11,6 +11,9 @@ pub struct Model {
     pub center_lat: f64,
     pub center_lng: f64,
     pub pickup_radius_km: f64,
+    pub station_name: String,
+    pub station_lat: f64,
+    pub station_lng: f64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

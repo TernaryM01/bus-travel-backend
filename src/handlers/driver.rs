@@ -5,19 +5,23 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::extract::{Json, Path};
+use crate::entities::journey::JourneyStatus;
 use crate::entities::{booking, city, journey};
 use crate::error::{AppError, AppResult};
+use crate::handlers::shared::{self, JourneyPassengersResponse};
+use crate::handlers::traveller::CityInfo;
 use crate::utils::jwt::Claims;
 use crate::AppState;
 
 #[derive(Debug, Serialize)]
 pub struct DriverJourneyResponse {
     pub id: Uuid,
-    pub origin_city: String,
-    pub destination_city: String,
+    pub origin_city: CityInfo,
+    pub destination_city: CityInfo,
     pub departure_time: DateTime<Utc>,
     pub total_seats: i32,
     pub booked_seats: i32,
+    pub status: JourneyStatus,
 }
 
 /// List journeys assigned to the logged-in driver
@@ -37,6 +41,13 @@ pub async fn my_journeys(
         let origin = cities.iter().find(|c| c.id == j.origin_city_id);
         let dest = cities.iter().find(|c| c.id == j.destination_city_id);
 
+        if origin.is_none() || dest.is_none() {
+            continue;
+        }
+
+        let origin = origin.unwrap();
+        let dest = dest.unwrap();
+
         let booked: i32 = booking::Entity::find()
             .filter(booking::Column::JourneyId.eq(j.id))
             .all(&state.db)
@@ -47,33 +58,34 @@ pub async fn my_journeys(
 
         responses.push(DriverJourneyResponse {
             id: j.id,
-            origin_city: origin.map(|c| c.name.clone()).unwrap_or_default(),
-            destination_city: dest.map(|c| c.name.clone()).unwrap_or_default(),
+            origin_city: CityInfo {
+                id: origin.id,
+                name: origin.name.clone(),
+                center_lat: origin.center_lat,
+                center_lng: origin.center_lng,
+                pickup_radius_km: origin.pickup_radius_km,
+                station_name: origin.station_name.clone(),
+                station_lat: origin.station_lat,
+                station_lng: origin.station_lng,
+            },
+            destination_city: CityInfo {
+                id: dest.id,
+                name: dest.name.clone(),
+                center_lat: dest.center_lat,
+                center_lng: dest.center_lng,
+                pickup_radius_km: dest.pickup_radius_km,
+                station_name: dest.station_name.clone(),
+                station_lat: dest.station_lat,
+                station_lng: dest.station_lng,
+            },
             departure_time: j.departure_time.with_timezone(&Utc),
             total_seats: j.total_seats,
             booked_seats: booked,
+            status: j.status,
         });
     }
 
     Ok(Json(responses))
-}
-
-#[derive(Debug, Serialize)]
-pub struct PassengerPickupInfo {
-    pub booking_id: Uuid,
-    pub passenger_name: String,
-    pub seats: i32,
-    pub pickup_lat: f64,
-    pub pickup_lng: f64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct JourneyPassengersResponse {
-    pub journey_id: Uuid,
-    pub origin_city: String,
-    pub destination_city: String,
-    pub departure_time: DateTime<Utc>,
-    pub passengers: Vec<PassengerPickupInfo>,
 }
 
 /// Get passenger pickup points for a specific journey
@@ -94,39 +106,5 @@ pub async fn journey_passengers(
         ));
     }
 
-    let cities = city::Entity::find().all(&state.db).await?;
-    let origin = cities.iter().find(|c| c.id == journey.origin_city_id);
-    let dest = cities.iter().find(|c| c.id == journey.destination_city_id);
-
-    // Get all bookings for this journey
-    let bookings = booking::Entity::find()
-        .filter(booking::Column::JourneyId.eq(journey_id))
-        .all(&state.db)
-        .await?;
-
-    // Get user info for each booking
-    use crate::entities::user;
-    let users = user::Entity::find().all(&state.db).await?;
-
-    let passengers: Vec<PassengerPickupInfo> = bookings
-        .into_iter()
-        .map(|b| {
-            let user = users.iter().find(|u| u.id == b.user_id);
-            PassengerPickupInfo {
-                booking_id: b.id,
-                passenger_name: user.map(|u| u.name.clone()).unwrap_or_default(),
-                seats: b.seats,
-                pickup_lat: b.pickup_lat,
-                pickup_lng: b.pickup_lng,
-            }
-        })
-        .collect();
-
-    Ok(Json(JourneyPassengersResponse {
-        journey_id: journey.id,
-        origin_city: origin.map(|c| c.name.clone()).unwrap_or_default(),
-        destination_city: dest.map(|c| c.name.clone()).unwrap_or_default(),
-        departure_time: journey.departure_time.with_timezone(&Utc),
-        passengers,
-    }))
+    Ok(Json(shared::journey_passengers(&state.db, journey).await?))
 }

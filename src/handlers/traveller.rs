@@ -28,6 +28,9 @@ pub struct CityInfo {
     pub center_lat: f64,
     pub center_lng: f64,
     pub pickup_radius_km: f64,
+    pub station_name: String,
+    pub station_lat: f64,
+    pub station_lng: f64,
 }
 
 /// List available journeys for booking
@@ -73,6 +76,9 @@ pub async fn list_journeys(
                 center_lat: origin.center_lat,
                 center_lng: origin.center_lng,
                 pickup_radius_km: origin.pickup_radius_km,
+                station_name: origin.station_name.clone(),
+                station_lat: origin.station_lat,
+                station_lng: origin.station_lng,
             },
             destination_city: CityInfo {
                 id: dest.id,
@@ -80,6 +86,9 @@ pub async fn list_journeys(
                 center_lat: dest.center_lat,
                 center_lng: dest.center_lng,
                 pickup_radius_km: dest.pickup_radius_km,
+                station_name: dest.station_name.clone(),
+                station_lat: dest.station_lat,
+                station_lng: dest.station_lng,
             },
             departure_time: j.departure_time.with_timezone(&Utc),
             available_seats: available,
@@ -126,6 +135,9 @@ pub async fn get_journey(
             center_lat: origin.center_lat,
             center_lng: origin.center_lng,
             pickup_radius_km: origin.pickup_radius_km,
+            station_name: origin.station_name.clone(),
+            station_lat: origin.station_lat,
+            station_lng: origin.station_lng,
         },
         destination_city: CityInfo {
             id: dest.id,
@@ -133,6 +145,9 @@ pub async fn get_journey(
             center_lat: dest.center_lat,
             center_lng: dest.center_lng,
             pickup_radius_km: dest.pickup_radius_km,
+            station_name: dest.station_name.clone(),
+            station_lat: dest.station_lat,
+            station_lng: dest.station_lng,
         },
         departure_time: journey.departure_time.with_timezone(&Utc),
         available_seats: journey.total_seats - booked,

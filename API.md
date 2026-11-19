@@ -56,6 +56,16 @@ type UserRole = "Admin" | "Driver" | "Traveller";
 ```
 Role values are case-sensitive, in responses and in request bodies.
 
+### JourneyStatus
+```typescript
+type JourneyStatus = "Scheduled" | "PickingUp" | "InTransit" | "Finished";
+```
+
+### PickupStatus
+```typescript
+type PickupStatus = "Pending" | "PickedUp" | "NoShow";
+```
+
 ### City
 ```typescript
 interface City {
@@ -64,6 +74,9 @@ interface City {
   center_lat: number;     // Latitude of city center
   center_lng: number;     // Longitude of city center
   pickup_radius_km: number; // Max pickup distance from center
+  station_name: string;   // Drop-off station: where journeys arriving in this city end
+  station_lat: number;    // Latitude of the station
+  station_lng: number;    // Longitude of the station
 }
 ```
 
@@ -88,6 +101,7 @@ interface Journey {
   total_seats: number;
   driver_id: string | null; // UUID or null if unassigned
   created_at: string;
+  status: JourneyStatus;
 }
 ```
 
@@ -101,6 +115,7 @@ interface Booking {
   pickup_lat: number;
   pickup_lng: number;
   created_at: string;
+  pickup_status: PickupStatus;
 }
 ```
 
@@ -217,14 +232,20 @@ GET /api/journeys
       "name": "Kupang",
       "center_lat": -10.1836,
       "center_lng": 123.6257,
-      "pickup_radius_km": 5.0
+      "pickup_radius_km": 5.0,
+      "station_name": "Pusat Kota Kupang",
+      "station_lat": -10.1836,
+      "station_lng": 123.6257
     },
     "destination_city": {
       "id": 2,
       "name": "Soe",
       "center_lat": -9.8684,
       "center_lng": 124.2861,
-      "pickup_radius_km": 2.0
+      "pickup_radius_km": 2.0,
+      "station_name": "Pusat Kota Soe",
+      "station_lat": -9.8684,
+      "station_lng": 124.2861
     },
     "departure_time": "2024-01-15T08:00:00Z",
     "available_seats": 35,
@@ -338,11 +359,30 @@ GET /api/driver/journeys
 [
   {
     "id": "550e8400-e29b-41d4-a716-446655440000",
-    "origin_city": "Kupang",
-    "destination_city": "Soe",
+    "origin_city": {
+      "id": 1,
+      "name": "Kupang",
+      "center_lat": -10.1836,
+      "center_lng": 123.6257,
+      "pickup_radius_km": 5.0,
+      "station_name": "Pusat Kota Kupang",
+      "station_lat": -10.1836,
+      "station_lng": 123.6257
+    },
+    "destination_city": {
+      "id": 2,
+      "name": "Soe",
+      "center_lat": -9.8684,
+      "center_lng": 124.2861,
+      "pickup_radius_km": 2.0,
+      "station_name": "Pusat Kota Soe",
+      "station_lat": -9.8684,
+      "station_lng": 124.2861
+    },
     "departure_time": "2024-01-15T08:00:00Z",
     "total_seats": 40,
-    "booked_seats": 25
+    "booked_seats": 25,
+    "status": "Scheduled"
   }
 ]
 ```
@@ -362,20 +402,23 @@ GET /api/driver/journeys/{id}/passengers
   "origin_city": "Kupang",
   "destination_city": "Soe",
   "departure_time": "2024-01-15T08:00:00Z",
+  "status": "PickingUp",
   "passengers": [
     {
       "booking_id": "660e8400-e29b-41d4-a716-446655440001",
       "passenger_name": "John Doe",
       "seats": 2,
       "pickup_lat": -10.18,
-      "pickup_lng": 123.62
+      "pickup_lng": 123.62,
+      "pickup_status": "PickedUp"
     },
     {
       "booking_id": "660e8400-e29b-41d4-a716-446655440002",
       "passenger_name": "Jane Smith",
       "seats": 1,
       "pickup_lat": -10.19,
-      "pickup_lng": 123.63
+      "pickup_lng": 123.63,
+      "pickup_status": "Pending"
     }
   ]
 }
@@ -405,17 +448,53 @@ GET /api/admin/cities
     "name": "Kupang",
     "center_lat": -10.1836,
     "center_lng": 123.6257,
-    "pickup_radius_km": 5.0
+    "pickup_radius_km": 5.0,
+    "station_name": "Pusat Kota Kupang",
+    "station_lat": -10.1836,
+    "station_lng": 123.6257
   },
   {
     "id": 2,
     "name": "Soe",
     "center_lat": -9.8684,
     "center_lng": 124.2861,
-    "pickup_radius_km": 2.0
+    "pickup_radius_km": 2.0,
+    "station_name": "Pusat Kota Soe",
+    "station_lat": -9.8684,
+    "station_lng": 124.2861
   }
 ]
 ```
+
+---
+
+### Update City Station
+
+Change the name and location of a city's drop-off station. All three fields are required.
+
+```
+PUT /api/admin/cities/{id}/station
+```
+
+**Request Body:**
+```json
+{
+  "station_name": "Terminal Kupang",
+  "station_lat": -10.17,
+  "station_lng": 123.61
+}
+```
+
+`station_name` is trimmed of surrounding spaces before saving. The station may be anywhere: it doesn't have to be inside the city's pickup radius.
+
+**Response:** `204 No Content`
+
+**Errors:**
+- `400 Bad Request`:
+  - Empty station name
+  - Station name longer than 100 characters
+  - Latitude outside -90 to 90, or longitude outside -180 to 180
+- `404 Not Found`: City not found
 
 ---
 
@@ -441,7 +520,8 @@ GET /api/admin/journeys
       "id": "770e8400-e29b-41d4-a716-446655440003",
       "name": "Driver One",
       "email": "driver1@example.com"
-    }
+    },
+    "status": "Scheduled"
   }
 ]
 ```

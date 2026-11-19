@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -42,6 +42,8 @@ pub async fn journey_passengers(
     // Get all bookings for this journey
     let bookings = booking::Entity::find()
         .filter(booking::Column::JourneyId.eq(journey.id))
+        .order_by_asc(booking::Column::CreatedAt)
+        .order_by_asc(booking::Column::Id)
         .all(db)
         .await?;
 

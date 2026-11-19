@@ -20,6 +20,19 @@ Tokens are obtained from the register and login endpoints and expire after 24 ho
 - **Other creates** (journeys, bookings) return `201 Created` with no body.
 - **Updates and deletes** return `204 No Content` with no body.
 
+### List Order
+Every list comes back in a fixed order. Ties are broken by ID.
+
+| List | Order |
+|------|-------|
+| Journeys (public, driver, admin) | Departure time, latest first |
+| Traveller's bookings | Journey departure time, latest first |
+| Passengers of a journey (driver, admin) | Booking time, earliest first |
+| Cities | ID |
+| Users | Account creation time, earliest first |
+| Drivers | Name, A–Z |
+| Bookings (admin) | Booking time, earliest first |
+
 ### Error Response
 Every error response has this shape, including malformed requests, unknown routes and rate limiting:
 ```json

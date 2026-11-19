@@ -1,6 +1,6 @@
 use axum::{extract::State, http::StatusCode, Extension};
 use chrono::{DateTime, Utc};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -32,6 +32,8 @@ pub async fn my_journeys(
 ) -> AppResult<Json<Vec<DriverJourneyResponse>>> {
     let journeys = journey::Entity::find()
         .filter(journey::Column::DriverId.eq(claims.sub))
+        .order_by_desc(journey::Column::DepartureTime)
+        .order_by_asc(journey::Column::Id)
         .all(&state.db)
         .await?;
 

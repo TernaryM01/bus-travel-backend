@@ -1,6 +1,6 @@
 use axum::{extract::State, http::StatusCode, Extension};
 use chrono::{DateTime, Utc};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -39,7 +39,11 @@ pub async fn list_journeys(
     State(state): State<AppState>,
 ) -> AppResult<Json<Vec<AvailableJourneyResponse>>> {
     let now = Utc::now();
-    let journeys = journey::Entity::find().all(&state.db).await?;
+    let journeys = journey::Entity::find()
+        .order_by_desc(journey::Column::DepartureTime)
+        .order_by_asc(journey::Column::Id)
+        .all(&state.db)
+        .await?;
     let cities = city::Entity::find().all(&state.db).await?;
 
     let mut responses = Vec::new();
@@ -294,7 +298,7 @@ pub async fn my_bookings(
     let journeys = journey::Entity::find().all(&state.db).await?;
     let cities = city::Entity::find().all(&state.db).await?;
 
-    let responses: Vec<BookingResponse> = bookings
+    let mut responses: Vec<BookingResponse> = bookings
         .into_iter()
         .filter_map(|b| {
             let journey = journeys.iter().find(|j| j.id == b.journey_id)?;
@@ -315,6 +319,9 @@ pub async fn my_bookings(
             })
         })
         .collect();
+
+    // By journey departure time, latest first
+    responses.sort_by(|a, b| b.departure_time.cmp(&a.departure_time).then(a.id.cmp(&b.id)));
 
     Ok(Json(responses))
 }

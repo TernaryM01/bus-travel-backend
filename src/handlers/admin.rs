@@ -1,6 +1,6 @@
 use axum::{extract::State, http::StatusCode};
 use chrono::{DateTime, Utc};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -64,7 +64,10 @@ const MAX_STATION_NAME_CHARS: usize = 100;
 
 /// List all cities
 pub async fn list_cities(State(state): State<AppState>) -> AppResult<Json<Vec<CityInfo>>> {
-    let cities = city::Entity::find().all(&state.db).await?;
+    let cities = city::Entity::find()
+        .order_by_asc(city::Column::Id)
+        .all(&state.db)
+        .await?;
 
     let responses: Vec<CityInfo> = cities
         .into_iter()
@@ -121,7 +124,11 @@ pub async fn update_city_station(
 
 /// List all journeys (admin)
 pub async fn list_journeys(State(state): State<AppState>) -> AppResult<Json<Vec<JourneyResponse>>> {
-    let journeys = journey::Entity::find().all(&state.db).await?;
+    let journeys = journey::Entity::find()
+        .order_by_desc(journey::Column::DepartureTime)
+        .order_by_asc(journey::Column::Id)
+        .all(&state.db)
+        .await?;
     let cities = city::Entity::find().all(&state.db).await?;
     let drivers = user::Entity::find()
         .filter(user::Column::Role.eq(UserRole::Driver))
@@ -305,7 +312,11 @@ pub struct UserResponse {
 
 /// List all users (admin)
 pub async fn list_all_users(State(state): State<AppState>) -> AppResult<Json<Vec<UserResponse>>> {
-    let users = user::Entity::find().all(&state.db).await?;
+    let users = user::Entity::find()
+        .order_by_asc(user::Column::CreatedAt)
+        .order_by_asc(user::Column::Id)
+        .all(&state.db)
+        .await?;
 
     let responses: Vec<UserResponse> = users
         .into_iter()
@@ -334,6 +345,8 @@ pub struct DriverResponse {
 pub async fn list_drivers(State(state): State<AppState>) -> AppResult<Json<Vec<DriverResponse>>> {
     let drivers = user::Entity::find()
         .filter(user::Column::Role.eq(UserRole::Driver))
+        .order_by_asc(user::Column::Name)
+        .order_by_asc(user::Column::Id)
         .all(&state.db)
         .await?;
 
@@ -451,7 +464,11 @@ pub struct BookingInfo {
 pub async fn list_all_bookings(
     State(state): State<AppState>,
 ) -> AppResult<Json<Vec<BookingInfo>>> {
-    let bookings = booking::Entity::find().all(&state.db).await?;
+    let bookings = booking::Entity::find()
+        .order_by_asc(booking::Column::CreatedAt)
+        .order_by_asc(booking::Column::Id)
+        .all(&state.db)
+        .await?;
     let users = user::Entity::find().all(&state.db).await?;
 
     let responses: Vec<BookingInfo> = bookings

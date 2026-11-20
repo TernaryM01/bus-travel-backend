@@ -51,6 +51,13 @@ async fn main() {
     // Seed admin account if not exists
     seed_admin(&db).await;
 
+    // Put the read cache in front of the database. Built after migrations so it
+    // sees the final schema (tables, foreign keys, triggers).
+    let db = db::CachedDb::new(db, config.db_cache_max_mb * 1024 * 1024)
+        .await
+        .expect("Failed to set up database cache");
+    tracing::info!("Database cache ready ({} MB cap)", config.db_cache_max_mb);
+
     // Create app state
     let state = AppState {
         db,

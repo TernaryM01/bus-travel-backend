@@ -13,9 +13,14 @@ tower_governor = "0.8"
 
 
 # Database
-sea-orm = { version = "1.0", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
+sea-orm = { version = "1.0", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros", "proxy"] }
 sea-orm-migration = { version = "1.0", features = ["sqlx-postgres", "runtime-tokio-rustls"] }
 migration = { path = "migration" }
+
+# Read cache in front of the database (src/db/cached.rs)
+moka = { version = "0.12", features = ["future"] }
+sqlparser = { version = "0.64", features = ["visitor"] }
+async-trait = "0.1"
 
 # Authentication
 jsonwebtoken = "9"

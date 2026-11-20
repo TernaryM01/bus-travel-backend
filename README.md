@@ -89,6 +89,21 @@ The server will:
 3. Create admin account if not exists
 4. Listen on the configured port
 
+## Database Read Cache
+
+All database access goes through `CachedDb` (`src/db/cached.rs`), a drop-in
+replacement for SeaORM's `DatabaseConnection`. Repeated reads are answered from
+memory; any write invalidates every cached result for the tables it touches,
+including tables changed by foreign-key cascades. New queries need no extra code.
+Cap its memory with `DB_CACHE_MAX_MB` (default 64).
+
+It assumes:
+- this backend is the only writer and runs as a single instance (no overlapping
+  instances during redeploys, no manual edits with psql while it runs);
+- `timestamptz` entity fields use `DateTimeWithTimeZone`.
+
+Transactions: use `state.db.begin()` and `txn.commit()`.
+
 ## Default Admin Account
 
 On first run, an admin account is created:

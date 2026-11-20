@@ -1,7 +1,11 @@
+pub mod cached;
+
 use sea_orm::{Database, DatabaseConnection};
 
 use crate::config::Config;
 use crate::error::{AppError, AppResult};
+
+pub use cached::CachedDb;
 
 pub async fn connect(config: &Config) -> AppResult<DatabaseConnection> {
     Database::connect(&config.database_url)

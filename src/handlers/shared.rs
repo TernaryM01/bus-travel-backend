@@ -1,8 +1,9 @@
 use chrono::{DateTime, Utc};
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::db::CachedDb;
 use crate::entities::booking::PickupStatus;
 use crate::entities::journey::JourneyStatus;
 use crate::entities::{booking, city, journey, user};
@@ -32,7 +33,7 @@ pub struct JourneyPassengersResponse {
 
 /// Build the passenger list of a journey. Access checks are up to the caller.
 pub async fn journey_passengers(
-    db: &DatabaseConnection,
+    db: &CachedDb,
     journey: journey::Model,
 ) -> AppResult<JourneyPassengersResponse> {
     let cities = city::Entity::find().all(db).await?;

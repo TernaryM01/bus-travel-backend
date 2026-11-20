@@ -8,6 +8,8 @@ pub struct Config {
     pub server_host: String,
     pub server_port: u16,
     pub oauth_client_id: String,
+    /// Memory cap for the database read cache, in megabytes.
+    pub db_cache_max_mb: u64,
 }
 
 impl Config {
@@ -27,6 +29,10 @@ impl Config {
                 .parse()
                 .expect("SERVER_PORT must be a number"),
             oauth_client_id: env::var("OAUTH_CLIENT_ID").expect("OAUTH_CLIENT_ID must be set"),
+            db_cache_max_mb: env::var("DB_CACHE_MAX_MB")
+                .unwrap_or_else(|_| "64".to_string())
+                .parse()
+                .expect("DB_CACHE_MAX_MB must be a number"),
         }
     }
 

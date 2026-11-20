@@ -106,7 +106,8 @@ Transactions: use `state.db.begin()` and `txn.commit()`.
 
 ## Default Admin Account
 
-On first run, an admin account is created:
+On startup, if no account with the admin role exists (e.g. on first run),
+an admin account is created:
 - **Email**: `admin@bustravel.com`
 - **Password**: `admin123`
 

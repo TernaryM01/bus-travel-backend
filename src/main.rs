@@ -124,35 +124,55 @@ async fn shutdown_signal() {
     tracing::info!("Shutting down: finishing requests in progress");
 }
 
-/// Seed the admin account if it doesn't exist
+/// Seed the admin account if no admins exist
 async fn seed_admin(db: &sea_orm::DatabaseConnection) {
     let admin_email = "admin@bustravel.com";
 
-    let existing = user::Entity::find()
-        .filter(user::Column::Email.eq(admin_email))
+    let any_admin = user::Entity::find()
+        .filter(user::Column::Role.eq(UserRole::Admin))
         .one(db)
         .await
         .expect("Failed to check for admin");
 
-    if existing.is_none() {
-        let salt = SaltString::generate(&mut OsRng);
-        let argon2 = Argon2::default();
-        let password_hash = argon2
-            .hash_password(b"admin123", &salt)
-            .expect("Failed to hash admin password")
-            .to_string();
-
-        let admin = user::ActiveModel {
-            id: Set(Uuid::new_v4()),
-            email: Set(admin_email.to_string()),
-            password_hash: Set(Some(password_hash)),
-            google_id: Set(None),
-            name: Set("Admin".to_string()),
-            role: Set(UserRole::Admin),
-            ..Default::default()
-        };
-
-        admin.insert(db).await.expect("Failed to create admin");
-        tracing::info!("Admin account created: {}", admin_email);
+    if any_admin.is_some() {
+        return;
     }
+
+    // No admin exists.
+    // If a non-admin account already uses the default admin email, don't promote it.
+    let email_taken = user::Entity::find()
+        .filter(user::Column::Email.eq(admin_email))
+        .one(db)
+        .await
+        .expect("Failed to check for existing account")
+        .is_some();
+
+    if email_taken {
+        tracing::error!(
+            "No admin account exists, and {} is already used by a non-admin account; \
+             skipping default admin creation. Promote an account to admin directly in the database.",
+            admin_email
+        );
+        return;
+    }
+
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    let password_hash = argon2
+        .hash_password(b"admin123", &salt)
+        .expect("Failed to hash admin password")
+        .to_string();
+
+    let admin = user::ActiveModel {
+        id: Set(Uuid::new_v4()),
+        email: Set(admin_email.to_string()),
+        password_hash: Set(Some(password_hash)),
+        google_id: Set(None),
+        name: Set("Admin".to_string()),
+        role: Set(UserRole::Admin),
+        ..Default::default()
+    };
+
+    admin.insert(db).await.expect("Failed to create admin");
+    tracing::info!("Admin account created: {}", admin_email);
 }

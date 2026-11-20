@@ -1,4 +1,4 @@
-use axum::{extract::State, http::StatusCode};
+use axum::{extract::State, http::StatusCode, Extension};
 use chrono::{DateTime, Utc};
 use sea_orm::sea_query::Expr;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
@@ -12,6 +12,7 @@ use crate::entities::{booking, city, journey, user};
 use crate::entities::journey::JourneyStatus;
 use crate::entities::user::UserRole;
 use crate::error::{AppError, AppResult};
+use crate::utils::jwt::Claims;
 use crate::AppState;
 
 // ============ Journey Management ============
@@ -403,11 +404,20 @@ pub async fn update_user_role(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Delete any user account (admin)
+/// Delete any user account except the caller's own (admin)
 pub async fn delete_user(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
+    // An admin can't delete their own account. That is only ever a mistake,
+    // and it could leave the app with no admin who can log in.
+    if id == claims.sub {
+        return Err(AppError::Forbidden(
+            "Anda tidak dapat menghapus akun Anda sendiri".to_string(),
+        ));
+    }
+
     let user = user::Entity::find_by_id(id)
         .one(&state.db)
         .await?

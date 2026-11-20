@@ -764,7 +764,7 @@ PUT /api/admin/users/{id}/role
 
 ### Delete User Account
 
-Delete any user account (including admins).
+Delete any user account (including other admins), except the caller's own.
 
 ```
 DELETE /api/admin/users/{id}
@@ -775,6 +775,7 @@ DELETE /api/admin/users/{id}
 > ⚠️ When deleted: drivers are unassigned from journeys, travellers have their bookings deleted.
 
 **Errors:**
+- `403 Forbidden`: `{id}` is the logged-in admin's own account
 - `404 Not Found`: User not found
 
 ---

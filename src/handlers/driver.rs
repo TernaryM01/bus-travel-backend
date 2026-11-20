@@ -38,6 +38,8 @@ pub async fn my_journeys(
         .await?;
 
     let cities = city::Entity::find().all(&state.db).await?;
+    let journey_ids: Vec<Uuid> = journeys.iter().map(|j| j.id).collect();
+    let booked_seats = shared::booked_seats(&state.db, &journey_ids).await?;
 
     let mut responses = Vec::new();
     for j in journeys {
@@ -51,13 +53,7 @@ pub async fn my_journeys(
         let origin = origin.unwrap();
         let dest = dest.unwrap();
 
-        let booked: i32 = booking::Entity::find()
-            .filter(booking::Column::JourneyId.eq(j.id))
-            .all(&state.db)
-            .await?
-            .iter()
-            .map(|b| b.seats)
-            .sum();
+        let booked = booked_seats.get(&j.id).copied().unwrap_or(0);
 
         responses.push(DriverJourneyResponse {
             id: j.id,

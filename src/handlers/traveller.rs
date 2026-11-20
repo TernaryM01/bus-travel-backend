@@ -8,6 +8,7 @@ use crate::extract::{Json, Path};
 use crate::entities::journey::JourneyStatus;
 use crate::entities::{booking, city, journey};
 use crate::error::{AppError, AppResult};
+use crate::handlers::shared;
 use crate::utils::geo::is_within_radius;
 use crate::utils::jwt::Claims;
 use crate::AppState;
@@ -39,25 +40,25 @@ pub async fn list_journeys(
     State(state): State<AppState>,
 ) -> AppResult<Json<Vec<AvailableJourneyResponse>>> {
     let now = Utc::now();
-    let journeys = journey::Entity::find()
+    // Filtered here rather than in SQL: a query containing the current time would
+    // be different on every request, so it could never be answered from the cache.
+    let journeys: Vec<journey::Model> = journey::Entity::find()
         .order_by_desc(journey::Column::DepartureTime)
         .order_by_asc(journey::Column::Id)
         .all(&state.db)
-        .await?;
+        .await?
+        .into_iter()
+        // Skip past journeys, and journeys whose pickup has started
+        // (they no longer take bookings)
+        .filter(|j| j.departure_time.with_timezone(&Utc) >= now)
+        .filter(|j| j.status == JourneyStatus::Scheduled)
+        .collect();
     let cities = city::Entity::find().all(&state.db).await?;
+    let journey_ids: Vec<Uuid> = journeys.iter().map(|j| j.id).collect();
+    let booked_seats = shared::booked_seats(&state.db, &journey_ids).await?;
 
     let mut responses = Vec::new();
     for j in journeys {
-        // Skip past journeys
-        if j.departure_time.with_timezone(&Utc) < now {
-            continue;
-        }
-
-        // Skip journeys whose pickup has started (they no longer take bookings)
-        if j.status != JourneyStatus::Scheduled {
-            continue;
-        }
-
         let origin = cities.iter().find(|c| c.id == j.origin_city_id);
         let dest = cities.iter().find(|c| c.id == j.destination_city_id);
 
@@ -68,13 +69,7 @@ pub async fn list_journeys(
         let origin = origin.unwrap();
         let dest = dest.unwrap();
 
-        let booked: i32 = booking::Entity::find()
-            .filter(booking::Column::JourneyId.eq(j.id))
-            .all(&state.db)
-            .await?
-            .iter()
-            .map(|b| b.seats)
-            .sum();
+        let booked = booked_seats.get(&j.id).copied().unwrap_or(0);
 
         let available = j.total_seats - booked;
 

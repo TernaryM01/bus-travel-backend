@@ -1,5 +1,6 @@
 use axum::{extract::State, http::StatusCode};
 use chrono::{DateTime, Utc};
+use sea_orm::sea_query::Expr;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -134,19 +135,15 @@ pub async fn list_journeys(State(state): State<AppState>) -> AppResult<Json<Vec<
         .filter(user::Column::Role.eq(UserRole::Driver))
         .all(&state.db)
         .await?;
+    let journey_ids: Vec<Uuid> = journeys.iter().map(|j| j.id).collect();
+    let booked_seats = shared::booked_seats(&state.db, &journey_ids).await?;
 
     let mut responses = Vec::new();
     for j in journeys {
         let origin = cities.iter().find(|c| c.id == j.origin_city_id);
         let dest = cities.iter().find(|c| c.id == j.destination_city_id);
 
-        let booked: i32 = booking::Entity::find()
-            .filter(booking::Column::JourneyId.eq(j.id))
-            .all(&state.db)
-            .await?
-            .iter()
-            .map(|b| b.seats)
-            .sum();
+        let booked = booked_seats.get(&j.id).copied().unwrap_or(0);
 
         let driver = j.driver_id.and_then(|did| {
             drivers.iter().find(|d| d.id == did).map(|d| DriverInfo {
@@ -383,16 +380,12 @@ pub async fn update_user_role(
 
     // Handle role change side effects
     if old_role == UserRole::Driver && payload.role != UserRole::Driver {
-        // Unassign from all journeys
-        let journeys = journey::Entity::find()
+        // Unassign from all journeys (one UPDATE for all of them)
+        journey::Entity::update_many()
+            .col_expr(journey::Column::DriverId, Expr::value(Option::<Uuid>::None))
             .filter(journey::Column::DriverId.eq(user_id))
-            .all(&state.db)
+            .exec(&state.db)
             .await?;
-        for j in journeys {
-            let mut active: journey::ActiveModel = j.into();
-            active.driver_id = Set(None);
-            active.update(&state.db).await?;
-        }
     }
 
     if old_role == UserRole::Traveller && payload.role != UserRole::Traveller {
@@ -422,16 +415,12 @@ pub async fn delete_user(
 
     // Handle cleanup based on role
     if user.role == UserRole::Driver {
-        // Unassign from all journeys
-        let journeys = journey::Entity::find()
+        // Unassign from all journeys (one UPDATE for all of them)
+        journey::Entity::update_many()
+            .col_expr(journey::Column::DriverId, Expr::value(Option::<Uuid>::None))
             .filter(journey::Column::DriverId.eq(id))
-            .all(&state.db)
+            .exec(&state.db)
             .await?;
-        for j in journeys {
-            let mut active: journey::ActiveModel = j.into();
-            active.driver_id = Set(None);
-            active.update(&state.db).await?;
-        }
     }
 
     // Delete user's bookings (if any - travellers will have bookings)

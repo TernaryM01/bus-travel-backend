@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -8,6 +11,33 @@ use crate::entities::booking::PickupStatus;
 use crate::entities::journey::JourneyStatus;
 use crate::entities::{booking, city, journey, user};
 use crate::error::AppResult;
+
+// ============ Booked Seats ============
+
+/// Seats booked on each of the given journeys, counted in a single query
+/// (`SELECT journey_id, SUM(seats) AS seats ... GROUP BY journey_id`).
+/// Journeys without bookings are absent from the map.
+pub async fn booked_seats(
+    db: &CachedDb,
+    journey_ids: &[Uuid],
+) -> AppResult<HashMap<Uuid, i32>> {
+    if journey_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let totals: Vec<(Uuid, i64)> = booking::Entity::find()
+        .select_only()
+        .column(booking::Column::JourneyId)
+        .column_as(Expr::col(booking::Column::Seats).sum(), "seats")
+        .filter(booking::Column::JourneyId.is_in(journey_ids.iter().copied()))
+        .group_by(booking::Column::JourneyId)
+        .into_tuple()
+        .all(db)
+        .await?;
+
+    // Postgres returns SUM of an INTEGER column as BIGINT; seat totals fit in i32.
+    Ok(totals.into_iter().map(|(id, seats)| (id, seats as i32)).collect())
+}
 
 // ============ Journey Passengers (same view for the driver and the admin) ============
 

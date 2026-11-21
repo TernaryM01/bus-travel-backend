@@ -24,10 +24,11 @@ impl Config {
                 .parse()
                 .expect("JWT_EXPIRATION_HOURS must be a number"),
             server_host: env::var("SERVER_HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
-            server_port: env::var("SERVER_PORT")
+            server_port: env::var("PORT")
+                .or_else(|_| env::var("SERVER_PORT"))
                 .unwrap_or_else(|_| "3000".to_string())
                 .parse()
-                .expect("SERVER_PORT must be a number"),
+                .expect("Server port must be a number"),
             oauth_client_id: env::var("OAUTH_CLIENT_ID").expect("OAUTH_CLIENT_ID must be set"),
             db_cache_max_mb: env::var("DB_CACHE_MAX_MB")
                 .unwrap_or_else(|_| "64".to_string())

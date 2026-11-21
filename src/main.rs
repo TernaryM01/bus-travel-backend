@@ -23,11 +23,14 @@ use bus_travel_backend::{
 
 #[tokio::main]
 async fn main() {
-    // Initialize tracing
+    // Load .env before anything reads env vars
+    dotenvy::dotenv().ok();
+
+    // Initialize tracing; the filter is read from the RUST_LOG env var
     tracing_subscriber::registry()
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "bus_travel_backend=debug,tower_http=debug".into()),
+            tracing_subscriber::EnvFilter::try_from_env("RUST_LOG")
+                .unwrap_or_else(|_| "info,bus_travel_backend=debug,tower_http=debug".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();

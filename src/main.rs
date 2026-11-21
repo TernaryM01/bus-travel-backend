@@ -30,7 +30,10 @@ async fn main() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_env("RUST_LOG")
-                .unwrap_or_else(|_| "info".into()),
+                .unwrap_or_else(|_| {
+                    let level = if cfg!(debug_assertions) { "debug" } else { "info" };
+                    level.into()
+                }),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();

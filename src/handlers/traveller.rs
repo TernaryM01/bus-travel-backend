@@ -205,7 +205,7 @@ pub async fn create_booking(
         .await?
         .ok_or_else(|| AppError::NotFound("Perjalanan tidak ditemukan".to_string()))?;
 
-    if booking_closed(&journey) {
+    if journey.departure_time.with_timezone(&Utc) <= now + BOOKING_CUTOFF {
         return Err(AppError::BadRequest(format!(
             "Pemesanan ditutup {} jam sebelum keberangkatan",
             BOOKING_CUTOFF.num_hours()

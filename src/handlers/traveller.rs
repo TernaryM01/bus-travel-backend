@@ -5,9 +5,11 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::extract::{Json, Path};
+use crate::entities::booking::{PaymentStatus, PickupStatus};
 use crate::entities::journey::JourneyStatus;
-use crate::entities::{booking, city, journey};
+use crate::entities::{booking, city, journey, user};
 use crate::error::{AppError, AppResult};
+use crate::handlers::payment::{self, PaymentResponse};
 use crate::handlers::shared;
 use crate::utils::geo::is_within_radius;
 use crate::utils::jwt::Claims;
@@ -21,6 +23,7 @@ pub struct AvailableJourneyResponse {
     pub departure_time: DateTime<Utc>,
     pub available_seats: i32,
     pub has_driver: bool,
+    pub price_per_seat: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -98,6 +101,7 @@ pub async fn list_journeys(
             departure_time: j.departure_time.with_timezone(&Utc),
             available_seats: available,
             has_driver: j.driver_id.is_some(),
+            price_per_seat: j.price_per_seat,
         });
     }
 
@@ -124,13 +128,7 @@ pub async fn get_journey(
         .find(|c| c.id == journey.destination_city_id)
         .ok_or_else(|| AppError::Internal("Destination city not found".to_string()))?;
 
-    let booked: i32 = booking::Entity::find()
-        .filter(booking::Column::JourneyId.eq(journey.id))
-        .all(&state.db)
-        .await?
-        .iter()
-        .map(|b| b.seats)
-        .sum();
+    let booked = shared::seats_taken(&state.db, journey.id, None).await?;
 
     Ok(Json(AvailableJourneyResponse {
         id: journey.id,
@@ -157,6 +155,7 @@ pub async fn get_journey(
         departure_time: journey.departure_time.with_timezone(&Utc),
         available_seats: journey.total_seats - booked,
         has_driver: journey.driver_id.is_some(),
+        price_per_seat: journey.price_per_seat,
     }))
 }
 
@@ -182,6 +181,11 @@ pub struct BookingResponse {
     pub pickup_lat: f64,
     pub pickup_lng: f64,
     pub created_at: DateTime<Utc>,
+    pub payment_status: PaymentStatus,
+    pub amount: i64,
+    pub payment_expires_at: Option<DateTime<Utc>>,
+    pub paid_at: Option<DateTime<Utc>>,
+    pub payment_method: Option<String>,
 }
 
 /// Create a booking
@@ -189,7 +193,9 @@ pub async fn create_booking(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(payload): Json<CreateBookingRequest>,
-) -> AppResult<StatusCode> {
+) -> AppResult<(StatusCode, Json<PaymentResponse>)> {
+    let now = Utc::now();
+
     // Validate journey
     let journey = journey::Entity::find_by_id(payload.journey_id)
         .one(&state.db)
@@ -197,7 +203,7 @@ pub async fn create_booking(
         .ok_or_else(|| AppError::NotFound("Perjalanan tidak ditemukan".to_string()))?;
 
     // Check journey is in the future
-    if journey.departure_time.with_timezone(&Utc) < Utc::now() {
+    if journey.departure_time.with_timezone(&Utc) < now {
         return Err(AppError::BadRequest("Perjalanan yang sudah lewat tidak dapat dipesan".to_string()));
     }
 
@@ -206,23 +212,6 @@ pub async fn create_booking(
         return Err(AppError::Conflict(
             "Perjalanan ini sudah tidak menerima pemesanan".to_string(),
         ));
-    }
-
-    // Check seat availability
-    let booked: i32 = booking::Entity::find()
-        .filter(booking::Column::JourneyId.eq(journey.id))
-        .all(&state.db)
-        .await?
-        .iter()
-        .map(|b| b.seats)
-        .sum();
-
-    let available = journey.total_seats - booked;
-    if payload.seats > available {
-        return Err(AppError::BadRequest(format!(
-            "Hanya tersisa {} kursi",
-            available
-        )));
     }
 
     if payload.seats <= 0 {
@@ -250,34 +239,77 @@ pub async fn create_booking(
         )));
     }
 
-    // Check if user already has a booking for this journey
+    // An expired or failed booking for this journey is replaced
     let existing = booking::Entity::find()
         .filter(booking::Column::JourneyId.eq(journey.id))
         .filter(booking::Column::UserId.eq(claims.sub))
         .one(&state.db)
         .await?;
-
-    if existing.is_some() {
-        return Err(AppError::Conflict(
-            "Anda sudah memesan tiket untuk perjalanan ini".to_string(),
-        ));
+    if let Some(b) = &existing {
+        match b.payment_status {
+            PaymentStatus::Paid => {
+                return Err(AppError::Conflict(
+                    "Anda sudah memesan tiket untuk perjalanan ini".to_string(),
+                ));
+            }
+            PaymentStatus::Pending => {
+                return Err(AppError::Conflict(
+                    "Anda sudah memesan kursi di perjalanan ini. Selesaikan pembayarannya di Tiket Saya".to_string(),
+                ));
+            }
+            PaymentStatus::Expired | PaymentStatus::Rejected | PaymentStatus::Failed | PaymentStatus::Cancelled => {}
+        }
     }
 
-    // Create booking
-    let booking_id = Uuid::new_v4();
-    let new_booking = booking::ActiveModel {
+    // Check seat availability
+    let taken = shared::seats_taken(&state.db, journey.id, existing.as_ref().map(|b| b.id)).await?;
+    let available = journey.total_seats - taken;
+    if payload.seats > available {
+        return Err(AppError::BadRequest(format!(
+            "Hanya tersisa {} kursi",
+            available.max(0)
+        )));
+    }
+
+    let amount = payment::total_price(&journey, payload.seats)?;
+    let booking_id = existing.as_ref().map(|b| b.id).unwrap_or_else(Uuid::new_v4);
+
+    let mut active = booking::ActiveModel {
         id: Set(booking_id),
         journey_id: Set(journey.id),
         user_id: Set(claims.sub),
         seats: Set(payload.seats),
         pickup_lat: Set(payload.pickup_lat),
         pickup_lng: Set(payload.pickup_lng),
-        ..Default::default()
+        created_at: Set(now.into()),
+        pickup_status: Set(PickupStatus::Pending),
+        payment_status: Set(PaymentStatus::Paid),
+        amount: Set(0),
+        payment_order_id: Set(None),
+        payment_token: Set(None),
+        payment_url: Set(None),
+        payment_expires_at: Set(None),
+        paid_at: Set(Some(now.into())),
+        payment_method: Set(None),
     };
 
-    new_booking.insert(&state.db).await?;
+    if amount > 0 {
+        let traveller = user::Entity::find_by_id(claims.sub)
+            .one(&state.db)
+            .await?
+            .ok_or_else(|| AppError::Unauthorized("Akun tidak ditemukan".to_string()))?;
+        payment::new_payment_attempt(&state, booking_id, &journey, payload.seats, &traveller)
+            .await?
+            .apply_to(&state, &mut active, booking_id, amount);
+    }
 
-    Ok(StatusCode::CREATED)
+    let saved = if existing.is_some() {
+        active.update(&state.db).await?
+    } else {
+        active.insert(&state.db).await?
+    };
+
+    Ok((StatusCode::CREATED, Json(PaymentResponse::of(&saved))))
 }
 
 /// List user's bookings
@@ -311,6 +343,14 @@ pub async fn my_bookings(
                 pickup_lat: b.pickup_lat,
                 pickup_lng: b.pickup_lng,
                 created_at: b.created_at.with_timezone(&Utc),
+                payment_status: b.payment_status,
+                amount: b.amount,
+                payment_expires_at: (b.payment_status == PaymentStatus::Pending)
+                    .then_some(b.payment_expires_at)
+                    .flatten()
+                    .map(|t| t.with_timezone(&Utc)),
+                paid_at: b.paid_at.map(|t| t.with_timezone(&Utc)),
+                payment_method: b.payment_method.clone(),
             })
         })
         .collect();
@@ -319,49 +359,4 @@ pub async fn my_bookings(
     responses.sort_by(|a, b| b.departure_time.cmp(&a.departure_time).then(a.id.cmp(&b.id)));
 
     Ok(Json(responses))
-}
-
-/// Cancel a booking
-pub async fn cancel_booking(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Path(booking_id): Path<Uuid>,
-) -> AppResult<StatusCode> {
-    let booking = booking::Entity::find_by_id(booking_id)
-        .one(&state.db)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Pesanan tidak ditemukan".to_string()))?;
-
-    // Verify ownership
-    if booking.user_id != claims.sub {
-        return Err(AppError::Forbidden(
-            "Anda hanya dapat membatalkan pesanan Anda sendiri".to_string(),
-        ));
-    }
-
-    // Check if journey is still in the future
-    let journey = journey::Entity::find_by_id(booking.journey_id)
-        .one(&state.db)
-        .await?;
-
-    if let Some(j) = journey {
-        if j.departure_time.with_timezone(&Utc) < Utc::now() {
-            return Err(AppError::BadRequest(
-                "Pesanan untuk perjalanan yang sudah lewat tidak dapat dibatalkan".to_string(),
-            ));
-        }
-
-        // The passenger list is fixed once the driver starts picking up passengers
-        if j.status != JourneyStatus::Scheduled {
-            return Err(AppError::Conflict(
-                "Pesanan tidak dapat dibatalkan setelah penjemputan dimulai".to_string(),
-            ));
-        }
-    }
-
-    booking::Entity::delete_by_id(booking_id)
-        .exec(&state.db)
-        .await?;
-
-    Ok(StatusCode::NO_CONTENT)
 }

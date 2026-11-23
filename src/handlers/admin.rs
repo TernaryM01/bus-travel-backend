@@ -9,6 +9,7 @@ use crate::extract::{Json, Path};
 use crate::handlers::shared::{self, JourneyPassengersResponse};
 use crate::handlers::traveller::CityInfo;
 use crate::entities::{booking, city, journey, user};
+use crate::entities::booking::PaymentStatus;
 use crate::entities::journey::JourneyStatus;
 use crate::entities::user::UserRole;
 use crate::error::{AppError, AppResult};
@@ -23,6 +24,7 @@ pub struct CreateJourneyRequest {
     pub destination_city_id: i32,
     pub departure_time: DateTime<Utc>,
     pub total_seats: i32,
+    pub price_per_seat: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -31,6 +33,17 @@ pub struct UpdateJourneyRequest {
     pub destination_city_id: Option<i32>,
     pub departure_time: Option<DateTime<Utc>>,
     pub total_seats: Option<i32>,
+    pub price_per_seat: Option<i64>,
+}
+
+fn validate_price(price: i64, max: i64) -> AppResult<()> {
+    if !(0..=max).contains(&price) {
+        return Err(AppError::BadRequest(format!(
+            "Harga per kursi harus antara Rp 0 dan Rp {}",
+            max
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
@@ -43,6 +56,7 @@ pub struct JourneyResponse {
     pub booked_seats: i32,
     pub driver: Option<DriverInfo>,
     pub status: JourneyStatus,
+    pub price_per_seat: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -163,6 +177,7 @@ pub async fn list_journeys(State(state): State<AppState>) -> AppResult<Json<Vec<
             booked_seats: booked,
             driver,
             status: j.status,
+            price_per_seat: j.price_per_seat,
         });
     }
 
@@ -191,12 +206,15 @@ pub async fn create_journey(
         ));
     }
 
+    validate_price(payload.price_per_seat, state.config.max_price_per_seat)?;
+
     let journey = journey::ActiveModel {
         id: Set(Uuid::new_v4()),
         origin_city_id: Set(payload.origin_city_id),
         destination_city_id: Set(payload.destination_city_id),
         departure_time: Set(payload.departure_time.into()),
         total_seats: Set(payload.total_seats),
+        price_per_seat: Set(payload.price_per_seat),
         driver_id: Set(None),
         ..Default::default()
     };
@@ -241,6 +259,11 @@ pub async fn update_journey(
 
     if let Some(seats) = payload.total_seats {
         active.total_seats = Set(seats);
+    }
+
+    if let Some(price) = payload.price_per_seat {
+        validate_price(price, state.config.max_price_per_seat)?;
+        active.price_per_seat = Set(price);
     }
 
     active.update(&state.db).await?;
@@ -457,6 +480,11 @@ pub struct BookingInfo {
     pub pickup_lat: f64,
     pub pickup_lng: f64,
     pub created_at: DateTime<Utc>,
+    pub payment_status: PaymentStatus,
+    pub amount: i64,
+    pub paid_at: Option<DateTime<Utc>>,
+    pub payment_method: Option<String>,
+    pub payment_order_id: Option<String>,
 }
 
 /// List all bookings (admin)
@@ -483,6 +511,11 @@ pub async fn list_all_bookings(
                 pickup_lat: b.pickup_lat,
                 pickup_lng: b.pickup_lng,
                 created_at: b.created_at.with_timezone(&Utc),
+                payment_status: b.payment_status,
+                amount: b.amount,
+                paid_at: b.paid_at.map(|t| t.with_timezone(&Utc)),
+                payment_method: b.payment_method.clone(),
+                payment_order_id: b.payment_order_id.clone(),
             }
         })
         .collect();
@@ -490,7 +523,7 @@ pub async fn list_all_bookings(
     Ok(Json(responses))
 }
 
-/// Delete any booking (admin)
+/// Delete any booking (admin). Doesn't refund.
 pub async fn delete_booking(
     State(state): State<AppState>,
     Path(booking_id): Path<Uuid>,

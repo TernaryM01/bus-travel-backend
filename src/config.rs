@@ -10,6 +10,12 @@ pub struct Config {
     pub oauth_client_id: String,
     /// Memory cap for the database read cache, in megabytes.
     pub db_cache_max_mb: u64,
+    pub midtrans_server_key: String,
+    pub midtrans_is_production: bool,
+    pub frontend_url: String,
+    pub payment_hold_minutes: i64,
+    /// Rupiah
+    pub max_price_per_seat: i64,
 }
 
 impl Config {
@@ -34,6 +40,25 @@ impl Config {
                 .unwrap_or_else(|_| "64".to_string())
                 .parse()
                 .expect("DB_CACHE_MAX_MB must be a number"),
+            midtrans_server_key: env::var("MIDTRANS_SERVER_KEY")
+                .expect("MIDTRANS_SERVER_KEY must be set"),
+            midtrans_is_production: env::var("MIDTRANS_IS_PRODUCTION")
+                .map(|v| v.trim().eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
+            frontend_url: env::var("FRONTEND_URL")
+                .unwrap_or_else(|_| "http://localhost:5173".to_string())
+                .trim_end_matches('/')
+                .to_string(),
+            payment_hold_minutes: env::var("PAYMENT_HOLD_MINUTES")
+                .unwrap_or_else(|_| "30".to_string())
+                .parse()
+                .ok()
+                .filter(|m| (10..=24 * 60).contains(m))
+                .expect("PAYMENT_HOLD_MINUTES must be a number of minutes between 10 and 1440"),
+            max_price_per_seat: env::var("MAX_PRICE_PER_SEAT")
+                .expect("MAX_PRICE_PER_SEAT must be set")
+                .parse()
+                .expect("MAX_PRICE_PER_SEAT must be a number"),
         }
     }
 

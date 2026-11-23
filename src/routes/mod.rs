@@ -6,7 +6,7 @@ use axum::{
 use crate::AppState;
 use crate::db::transaction_per_request;
 use crate::error::AppError;
-use crate::handlers::{admin, auth, driver, traveller};
+use crate::handlers::{admin, auth, driver, payment, traveller};
 use crate::middleware::auth::{auth_middleware, require_admin, require_driver, require_traveller};
 use crate::middleware::rate_limit::create_public_governor;
 use crate::middleware::role_rate_limit::RateLimitedRole;
@@ -85,13 +85,19 @@ pub fn create_router(state: AppState) -> Router {
     let traveller_routes = Router::new()
         .route("/", post(traveller::create_booking))
         .route("/", get(traveller::my_bookings))
-        .route("/{id}", delete(traveller::cancel_booking))
+        .route("/{id}/pay", post(payment::pay_booking))
+        .route("/{id}/cancel", post(payment::cancel_booking))
+        .route("/{id}/payment/refresh", post(payment::refresh_payment))
         .layer(traveller_governor)
         .layer(middleware::from_fn(require_traveller))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
         ));
+
+    // Midtrans notifications: verified by signature, global rate limit only
+    let payment_routes = Router::new()
+        .route("/midtrans/notification", post(payment::midtrans_notification));
 
     // Combine all routes
     Router::new()
@@ -100,6 +106,7 @@ pub fn create_router(state: AppState) -> Router {
         .nest("/api/admin", admin_routes)
         .nest("/api/driver", driver_routes)
         .nest("/api/bookings", traveller_routes)
+        .nest("/api/payments", payment_routes)
         // Unknown paths and unsupported methods get the usual JSON error body
         // instead of axum's default empty response.
         .fallback(not_found)

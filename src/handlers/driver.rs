@@ -1,11 +1,11 @@
 use axum::{extract::State, http::StatusCode, Extension};
 use chrono::{DateTime, Utc};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set};
+use sea_orm::{ActiveEnum, ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::extract::{Json, Path};
-use crate::entities::booking::PickupStatus;
+use crate::entities::booking::{PaymentStatus, PickupStatus};
 use crate::entities::journey::JourneyStatus;
 use crate::entities::{booking, city, journey};
 use crate::error::{AppError, AppResult};
@@ -160,6 +160,7 @@ pub async fn update_journey_status(
         let pending = booking::Entity::find()
             .filter(booking::Column::JourneyId.eq(journey.id))
             .filter(booking::Column::PickupStatus.eq(PickupStatus::Pending))
+            .filter(booking::Column::PaymentStatus.eq(PaymentStatus::Paid))
             .count(&state.db)
             .await?;
 
@@ -169,6 +170,16 @@ pub async fn update_journey_status(
                 pending
             )));
         }
+    }
+
+    // Starting pickup ends every payment still pending on this journey
+    if payload.status == JourneyStatus::PickingUp && journey.status == JourneyStatus::Scheduled {
+        booking::Entity::update_many()
+            .filter(booking::Column::JourneyId.eq(journey.id))
+            .filter(booking::Column::PaymentStatus.eq(PaymentStatus::Pending))
+            .col_expr(booking::Column::PaymentStatus, PaymentStatus::Failed.as_enum())
+            .exec(&state.db)
+            .await?;
     }
 
     let mut active: journey::ActiveModel = journey.into();
@@ -197,9 +208,10 @@ pub async fn update_pickup_status(
         ));
     }
 
-    // The booking must belong to this journey
+    // The booking must belong to this journey (and be paid)
     let booking_record = booking::Entity::find_by_id(booking_id)
         .filter(booking::Column::JourneyId.eq(journey.id))
+        .filter(booking::Column::PaymentStatus.eq(PaymentStatus::Paid))
         .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("Pesanan tidak ditemukan".to_string()))?;

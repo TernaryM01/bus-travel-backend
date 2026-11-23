@@ -58,6 +58,7 @@ Error messages are in Indonesian and are meant to be shown to the user as they a
 | 422 | Unprocessable Entity - JSON body has missing fields or wrong value types |
 | 429 | Too Many Requests - Rate limited |
 | 500 | Internal Server Error |
+| 502 | Bad Gateway - The payment provider (Midtrans) couldn't be reached; try again |
 
 ---
 
@@ -77,6 +78,33 @@ type JourneyStatus = "Scheduled" | "PickingUp" | "InTransit" | "Finished";
 ### PickupStatus
 ```typescript
 type PickupStatus = "Pending" | "PickedUp" | "NoShow";
+```
+
+### PaymentStatus
+```typescript
+type PaymentStatus = "Pending" | "Paid" | "Expired" | "Rejected" | "Failed" | "Cancelled";
+```
+- `Pending`: waiting for payment. Holds its seats, also past the deadline, until Midtrans gives a final answer.
+- `Paid`: confirmed (also bookings on free journeys, and bookings made before payments existed).
+- `Expired`: Midtrans confirmed it can no longer be paid. Seats released.
+- `Rejected`: declined, cancelled or errored at Midtrans. Seats released.
+- `Failed`: still `Pending` when pickup started; whether it was paid is unknown (check the order in Midtrans).
+- `Cancelled`: cancelled by the traveller before paying. Seats released.
+
+At the deadline the backend stops the payment at Midtrans (or finds it paid). Until Midtrans
+confirms, the booking stays `Pending`.
+Only `Paid` bookings are passengers (driver and admin passenger lists, pickup statuses).
+
+### Payment
+Returned when booking, paying, or checking a payment.
+```typescript
+interface Payment {
+  booking_id: string;
+  payment_status: PaymentStatus;
+  amount: number;                    // Total in whole rupiah (IDR)
+  payment_url: string | null;        // Midtrans payment page; set while Pending
+  payment_expires_at: string | null; // Deadline to pay; set while Pending
+}
 ```
 
 ### City
@@ -115,6 +143,7 @@ interface Journey {
   driver_id: string | null; // UUID or null if unassigned
   created_at: string;
   status: JourneyStatus;
+  price_per_seat: number;   // Whole rupiah; 0 = free
 }
 ```
 
@@ -129,6 +158,13 @@ interface Booking {
   pickup_lng: number;
   created_at: string;
   pickup_status: PickupStatus;
+  payment_status: PaymentStatus;
+  amount: number;                    // Total in whole rupiah, fixed by the latest payment attempt
+  payment_order_id: string | null;   // Midtrans order id of the latest payment attempt
+  payment_url: string | null;
+  payment_expires_at: string | null;
+  paid_at: string | null;
+  payment_method: string | null;     // Midtrans payment_type: "bank_transfer", "qris", "gopay", ...
 }
 ```
 
@@ -230,6 +266,7 @@ POST /api/auth/google
 ### List Available Journeys
 
 Returns journeys that haven't departed yet and whose status is still `Scheduled`, including full ones (`available_seats: 0`).
+Seats held by bookings that are still waiting for payment don't count as available.
 
 ```
 GET /api/journeys
@@ -262,7 +299,8 @@ GET /api/journeys
     },
     "departure_time": "2024-01-15T08:00:00Z",
     "available_seats": 35,
-    "has_driver": true
+    "has_driver": true,
+    "price_per_seat": 150000
   }
 ]
 ```
@@ -304,7 +342,25 @@ POST /api/bookings
 }
 ```
 
-**Response:** `201 Created` (no body)
+On a journey with a price, the booking is created as `Pending` and holds its seats; the traveller
+has until `payment_expires_at` (`PAYMENT_HOLD_MINUTES`, default 30) to pay. Send the traveller to `payment_url`
+(the Midtrans payment page). Afterwards Midtrans sends them back to `<FRONTEND_URL>/my-bookings`
+with `?order_id=...&transaction_status=...` added. On a free journey (`price_per_seat` 0) the booking
+is `Paid` straight away and `payment_url` is `null`.
+
+If the traveller already has an `Expired`, `Rejected`, `Failed` or `Cancelled` booking on this journey, it is replaced by
+the new one (same booking `id`).
+
+**Response:** `201 Created` — a [Payment](#payment)
+```json
+{
+  "booking_id": "660e8400-e29b-41d4-a716-446655440001",
+  "payment_status": "Pending",
+  "amount": 300000,
+  "payment_url": "https://app.sandbox.midtrans.com/snap/v4/redirection/...",
+  "payment_expires_at": "2024-01-10T11:00:00Z"
+}
+```
 
 **Errors:**
 - `400 Bad Request`:
@@ -314,8 +370,9 @@ POST /api/bookings
   - Pickup point outside allowed radius
 - `404 Not Found`: Journey not found
 - `409 Conflict`:
-  - Already booked this journey
+  - Already booked this journey (paid, or payment still pending)
   - Journey is no longer `Scheduled` (the driver has started picking up passengers)
+- `502 Bad Gateway`: Midtrans couldn't be reached; nothing was booked
 
 ---
 
@@ -338,26 +395,109 @@ GET /api/bookings
     "seats": 2,
     "pickup_lat": -10.18,
     "pickup_lng": 123.62,
-    "created_at": "2024-01-10T10:30:00Z"
+    "created_at": "2024-01-10T10:30:00Z",
+    "payment_status": "Paid",
+    "amount": 300000,
+    "payment_expires_at": null,
+    "paid_at": "2024-01-10T10:41:12Z",
+    "payment_method": "bank_transfer"
   }
 ]
 ```
 
+`payment_expires_at` is set only while the payment is `Pending`.
+
+Paid bookings can't be cancelled by travellers. An admin can delete one (see [Delete Booking](#delete-booking-admin)).
+
 ---
 
-### Cancel Booking
+### Pay for a Booking
 
 ```
-DELETE /api/bookings/{id}
+POST /api/bookings/{id}/pay
 ```
 
-**Response:** `204 No Content`
+- `Pending`: returns the current payment page. Past the deadline, asks Midtrans first.
+- `Expired` or `Rejected`: starts a new payment attempt (new `payment_url` and deadline), priced at
+  the journey's current price, if the seats are still free and the journey still takes bookings.
+
+**Response:** `200 OK` — a [Payment](#payment)
 
 **Errors:**
-- `400 Bad Request`: Cannot cancel past journey bookings
-- `403 Forbidden`: Not your booking
-- `404 Not Found`: Booking not found
-- `409 Conflict`: Journey is no longer `Scheduled` (the driver has started picking up passengers)
+- `404 Not Found`: Booking not found (or not yours)
+- `409 Conflict`:
+  - Already paid
+  - Past the deadline and Midtrans hasn't given a final answer yet
+  - Journey no longer takes bookings (departed, or pickup has started)
+  - The seats were taken by someone else in the meantime
+- `502 Bad Gateway`: Midtrans couldn't be reached
+
+---
+
+### Cancel an Unpaid Booking
+
+```
+POST /api/bookings/{id}/cancel
+```
+
+Stops the payment at Midtrans. If Midtrans confirms it's stopped, the booking becomes `Cancelled`
+and its seats are free at once. If the payment went through just before, the booking becomes
+`Paid` instead (check `payment_status` in the response).
+
+**Response:** `200 OK` — a [Payment](#payment)
+
+**Errors:**
+- `404 Not Found`: Booking not found (or not yours)
+- `409 Conflict`: Booking isn't waiting for payment (paid, expired, rejected, failed or already cancelled)
+- `502 Bad Gateway`: Midtrans couldn't be reached or gave no definite answer; nothing changed
+
+---
+
+### Check Payment Status
+
+```
+POST /api/bookings/{id}/payment/refresh
+```
+
+Asks Midtrans for the payment's status now and records it, instead of waiting for Midtrans's
+notification. Call it when the traveller comes back from the payment page. It is also how
+payments get confirmed in local development, where Midtrans can't reach the backend.
+
+**Response:** `200 OK` — a [Payment](#payment)
+
+**Errors:**
+- `404 Not Found`: Booking not found (or not yours)
+- `502 Bad Gateway`: Midtrans couldn't be reached
+
+---
+
+## Payment Notifications
+
+### Midtrans Notification
+
+```
+POST /api/payments/midtrans/notification
+```
+
+Called by Midtrans whenever a payment's status changes. Set it as **Payment Notification URL**
+in the Midtrans dashboard (Settings > Configuration), e.g.
+`https://api.example.com/api/payments/midtrans/notification`. No login: each notification is
+checked against its `signature_key`, `SHA512(order_id + status_code + gross_amount + server key)`.
+
+| Midtrans `transaction_status` | Booking |
+|---|---|
+| `settlement`, `capture` (fraud status `accept`) | `Paid` (if it was `Pending` and the amount matches) |
+| `pending`, `capture` (fraud status `challenge`) | unchanged |
+| `expire` | `Expired` (if `Pending`) |
+| `deny`, `cancel`, `failure` | `Rejected` (if `Pending`) |
+| `refund`, `partial_refund` | unchanged |
+
+**Response:** `200 OK`
+
+**Errors:**
+- `401 Unauthorized`: Wrong signature
+- `404 Not Found`: No booking has this order id. Midtrans tries again later, which covers a
+  notification that arrives before its booking was saved.
 
 ---
 
@@ -411,6 +551,8 @@ GET /api/driver/journeys
 ```
 GET /api/driver/journeys/{id}/passengers
 ```
+
+Lists the journey's passengers: its `Paid` bookings.
 
 **Response:** `200 OK`
 ```json
@@ -569,7 +711,8 @@ PUT /api/admin/cities/{id}/station
 
 ### List All Journeys
 
-Returns all journeys with driver info and seat counts.
+Returns all journeys with driver info, seat counts and prices. `booked_seats` counts paid
+bookings plus bookings still waiting for payment (they hold their seats).
 
 ```
 GET /api/admin/journeys
@@ -590,7 +733,8 @@ GET /api/admin/journeys
       "name": "Driver One",
       "email": "driver1@example.com"
     },
-    "status": "Scheduled"
+    "status": "Scheduled",
+    "price_per_seat": 150000
   }
 ]
 ```
@@ -609,14 +753,17 @@ POST /api/admin/journeys
   "origin_city_id": 1,
   "destination_city_id": 2,
   "departure_time": "2024-01-15T08:00:00Z",
-  "total_seats": 40
+  "total_seats": 40,
+  "price_per_seat": 150000
 }
 ```
+
+`price_per_seat` is in whole rupiah, from 0 (free: bookings are confirmed without payment) to `MAX_PRICE_PER_SEAT`.
 
 **Response:** `201 Created` (no body)
 
 **Errors:**
-- `400 Bad Request`: Invalid city ID or same origin/destination
+- `400 Bad Request`: Invalid city ID, same origin/destination, or price out of range
 
 ---
 
@@ -632,14 +779,17 @@ PUT /api/admin/journeys/{id}
   "origin_city_id": 1,
   "destination_city_id": 2,
   "departure_time": "2024-01-15T09:00:00Z",
-  "total_seats": 45
+  "total_seats": 45,
+  "price_per_seat": 175000
 }
 ```
+
+A new price applies to bookings made, or paid again, afterwards. Paid bookings and payments in progress keep their amount.
 
 **Response:** `204 No Content`
 
 **Errors:**
-- `400 Bad Request`: Invalid city ID
+- `400 Bad Request`: Invalid city ID, or price out of range
 - `404 Not Found`: Journey not found
 
 ---
@@ -797,16 +947,25 @@ GET /api/admin/bookings
     "seats": 2,
     "pickup_lat": -10.18,
     "pickup_lng": 123.62,
-    "created_at": "2024-01-10T10:30:00Z"
+    "created_at": "2024-01-10T10:30:00Z",
+    "payment_status": "Paid",
+    "amount": 300000,
+    "paid_at": "2024-01-10T10:41:12Z",
+    "payment_method": "qris",
+    "payment_order_id": "660e8400e29b41d4a716446655440001-3f9a1c2e"
   }
 ]
 ```
+
+`payment_order_id` is the Midtrans order id of the latest payment attempt: search for it in the
+Midtrans dashboard to see the transaction or refund it.
 
 ---
 
 ### Delete Booking (Admin)
 
-Delete any booking.
+Delete any booking. Money already paid is **not** refunded automatically: refund it in the
+Midtrans dashboard (by `payment_order_id`) or by other means.
 
 ```
 DELETE /api/admin/bookings/{id}
@@ -821,7 +980,7 @@ DELETE /api/admin/bookings/{id}
 
 ### Update Booking (Admin)
 
-Modify a booking's pickup point and/or number of seats. Admin can put pickup point outside of the allowed circle area and can overbook (exceed the number of seats available).
+Modify a booking's pickup point and/or number of seats. Admin can put pickup point outside of the allowed circle area and can overbook (exceed the number of seats available). The amount paid (or being paid) doesn't change.
 
 ```
 PUT /api/admin/bookings/{id}
@@ -868,7 +1027,7 @@ Applied to **all requests** before authentication.
 | Driver | 250 requests per minute | 500 | User ID |
 | Traveller | 50 requests per minute | 100 | User ID |
 
-Admin routes only have the global limit.
+Admin routes and Midtrans notifications (`/api/payments/*`) only have the global limit.
 
 **Purpose**: Provides fair usage limits based on account type. Per-user keying ensures users behind shared IPs (NAT, corporate networks) each get their own quota.
 

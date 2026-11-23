@@ -17,7 +17,9 @@ use bus_travel_backend::{
     config::Config,
     db,
     entities::user::{self, UserRole},
+    handlers::payment,
     middleware::rate_limit::create_global_governor,
+    midtrans::Midtrans,
     routes,
 };
 
@@ -67,8 +69,16 @@ async fn main() {
     // Create app state
     let state = AppState {
         db,
+        midtrans: Midtrans::new(&config),
         config: config.clone(),
     };
+    tracing::info!(
+        "Payments: Midtrans {}",
+        if config.midtrans_is_production { "PRODUCTION (real money)" } else { "sandbox (test mode, no real money)" }
+    );
+    payment::schedule_pending_deadlines(&state)
+        .await
+        .expect("Failed to load pending payments");
 
     // Create router with middleware
     let app = routes::create_router(state)

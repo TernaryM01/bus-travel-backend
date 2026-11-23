@@ -7,6 +7,7 @@ A Rust backend for a bus travel booking system between Kupang and Soe, built wit
 - **Role-based Access Control**: Admin, Driver, and Traveller roles with JWT authentication
 - **Journey Management**: Admins create bus journeys between Kupang ↔ Soe
 - **Booking System**: Travellers book seats and specify pickup points within allowed radius
+- **Payments**: Travellers pay in IDR through Midtrans (bank transfer / virtual account, QRIS, e-wallets, cards)
 - **Driver Dashboard**: Drivers view assigned journeys and passenger pickup locations
 - **Rate Limiting**: Per-IP and per-user limits (see [API.md](./API.md#rate-limiting))
 
@@ -40,6 +41,7 @@ backend/
     ├── entities/           # SeaORM entity models
     ├── handlers/           # Route handlers by role
     ├── middleware/         # Auth & role middleware
+    ├── midtrans.rs         # Midtrans payment gateway client
     ├── routes/             # Route definitions
     └── utils/              # JWT and geolocation helpers
 ```
@@ -69,9 +71,14 @@ JWT_EXPIRATION_HOURS=24
 SERVER_HOST=0.0.0.0
 SERVER_PORT=3000
 OAUTH_CLIENT_ID=your-google-oauth-client-id
+MIDTRANS_SERVER_KEY=SB-Mid-server-xxxxxxxxxxxxxxxx
+FRONTEND_URL=http://localhost:5173
+MAX_PRICE_PER_SEAT=1000000
 ```
 
 `OAUTH_CLIENT_ID` is required: it's the Google OAuth client ID used to verify "Sign in with Google" tokens. The server won't start without it.
+
+`MIDTRANS_SERVER_KEY` and `MAX_PRICE_PER_SEAT` are required too; see [Payments](#payments-midtrans).
 
 ### 3. Run
 
@@ -116,6 +123,77 @@ Keep in mind:
 - an error response (4xx or 5xx) rolls back everything the request wrote;
 - GET handlers must not write to the database.
 
+
+## Payments (Midtrans)
+
+Travellers pay through [Midtrans Snap](https://docs.midtrans.com/docs/snap-snap-integration-guide),
+Midtrans's hosted payment page. IDR only. The code is in `src/midtrans.rs` (talking to Midtrans)
+and `src/handlers/payment.rs` (what payments do to bookings).
+
+### How it works
+
+1. An admin sets a **price per seat** on each journey (0 = free).
+2. A traveller books: the booking is created as `Pending`, **holds its seats** for
+   `PAYMENT_HOLD_MINUTES` (default 30), and the traveller is sent to the Midtrans payment page.
+3. Midtrans confirms the payment by calling
+   `POST /api/payments/midtrans/notification` (signed with your server key). The backend also
+   asks Midtrans directly when the traveller comes back from the payment page, or presses
+   "Cek status" in Tiket Saya.
+4. Paid bookings are confirmed and appear on the driver's passenger list.
+5. At the deadline, or when the traveller cancels an unpaid booking ("Batalkan"), the backend
+   tells Midtrans to stop the payment. Midtrans either confirms it's stopped (no money can arrive
+   anymore: the seats are released at once) or says it's already paid (the booking is confirmed).
+   Seats are never released without that confirmation; if Midtrans can't be reached, the backend
+   keeps asking every 30 seconds and the seats stay held.
+6. The deadline timers live in memory and are rebuilt from the database at startup, so a restart
+   loses nothing. Midtrans enforces the deadline on its side too, even while the backend is down.
+
+Paid bookings can't be cancelled by travellers. Admins can delete them; refunds are not automatic
+(refund in the Midtrans dashboard, using the order id shown in the admin's booking list).
+
+### Setup
+
+1. Create a Midtrans account, switch the dashboard to the **Sandbox** environment, and copy the
+   **Server Key** (`SB-Mid-server-...`) from *Settings > Access Keys* into `MIDTRANS_SERVER_KEY`.
+2. Set `FRONTEND_URL` to the frontend's address: Midtrans sends travellers back to
+   `<FRONTEND_URL>/my-bookings` after paying.
+3. In the dashboard, *Settings > Configuration*, set **Payment Notification URL** to
+   `https://<your-backend>/api/payments/midtrans/notification`.
+
+Midtrans can't send notifications to `localhost`. During local development, payments are
+confirmed when the traveller comes back to Tiket Saya, presses "Cek status", or at the deadline.
+
+| Variable | Default | |
+|---|---|---|
+| `MIDTRANS_SERVER_KEY` | (required) | Sandbox keys start with `SB-Mid-server-` |
+| `MIDTRANS_IS_PRODUCTION` | `false` | `true` = real money |
+| `FRONTEND_URL` | `http://localhost:5173` | Where travellers return after paying |
+| `PAYMENT_HOLD_MINUTES` | `30` | Time to pay (10 to 1440) |
+| `MAX_PRICE_PER_SEAT` | (required) | Highest price per seat an admin can set, in rupiah |
+
+### Testing without real money
+
+With a sandbox key, nothing is charged. Book a seat, then on the Midtrans page either:
+- choose **BCA Virtual Account**, copy the VA number, and pay it in the
+  [BCA VA simulator](https://simulator.sandbox.midtrans.com/bca/va/index); or
+- choose **QRIS**, copy the QR image's URL, and pay it in the
+  [QRIS simulator](https://simulator.sandbox.midtrans.com/v2/qris/index); or
+- pay by **card** with `4811 1111 1111 1114`, CVV `123`, any future expiry date, OTP `112233`.
+
+Never pay a sandbox transaction with a real bank account, card or e-wallet.
+
+More test methods (QRIS, GoPay, failing cards): [Testing Payment on Sandbox](https://docs.midtrans.com/docs/testing-payment-on-sandbox).
+To test an expired payment, leave the page unpaid until the deadline.
+
+### Going live
+
+Use the Production server key, set `MIDTRANS_IS_PRODUCTION=true`, and set the notification URL in
+the Production dashboard as well. The server logs a warning if the key and the mode don't match.
+
+### Notes
+
+- After upgrading, journeys that existed before get a price of 0 (free) until an admin sets one,
+  and existing bookings are marked as paid.
 
 ## Default Admin Account
 

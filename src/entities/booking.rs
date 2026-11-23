@@ -12,6 +12,27 @@ pub enum PickupStatus {
     NoShow,
 }
 
+/// Only Midtrans's answers move a booking out of `Pending`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "payment_status")]
+pub enum PaymentStatus {
+    #[sea_orm(string_value = "pending")]
+    Pending,
+    #[sea_orm(string_value = "paid")]
+    Paid,
+    #[sea_orm(string_value = "expired")]
+    Expired,
+    /// Declined, cancelled or errored at Midtrans
+    #[sea_orm(string_value = "rejected")]
+    Rejected,
+    /// Still pending when pickup started; whether it was paid is unknown
+    #[sea_orm(string_value = "failed")]
+    Failed,
+    /// Cancelled by the traveller before paying
+    #[sea_orm(string_value = "cancelled")]
+    Cancelled,
+}
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "booking")]
 pub struct Model {
@@ -24,6 +45,28 @@ pub struct Model {
     pub pickup_lng: f64,
     pub created_at: DateTimeWithTimeZone,
     pub pickup_status: PickupStatus,
+    pub payment_status: PaymentStatus,
+    /// Rupiah
+    pub amount: i64,
+    #[sea_orm(unique)]
+    pub payment_order_id: Option<String>,
+    /// Snap page token, to close the page
+    pub payment_token: Option<String>,
+    pub payment_url: Option<String>,
+    pub payment_expires_at: Option<DateTimeWithTimeZone>,
+    pub paid_at: Option<DateTimeWithTimeZone>,
+    /// Midtrans payment_type
+    pub payment_method: Option<String>,
+}
+
+impl Model {
+    pub fn holds_seats(&self) -> bool {
+        matches!(self.payment_status, PaymentStatus::Paid | PaymentStatus::Pending)
+    }
+
+    pub fn is_paid(&self) -> bool {
+        self.payment_status == PaymentStatus::Paid
+    }
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

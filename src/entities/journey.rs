@@ -26,6 +26,8 @@ pub struct Model {
     pub driver_id: Option<Uuid>,
     pub created_at: DateTimeWithTimeZone,
     pub status: JourneyStatus,
+    /// Rupiah; 0 = free
+    pub price_per_seat: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

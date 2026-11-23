@@ -7,15 +7,15 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::db::CachedDb;
-use crate::entities::booking::PickupStatus;
+use crate::entities::booking::{PaymentStatus, PickupStatus};
 use crate::entities::journey::JourneyStatus;
 use crate::entities::{booking, city, journey, user};
 use crate::error::AppResult;
 
 // ============ Booked Seats ============
 
-/// Seats booked on each of the given journeys, counted in a single query
-/// (`SELECT journey_id, SUM(seats) AS seats ... GROUP BY journey_id`).
+/// Seats held (paid or pending payment) on each of the given journeys, counted
+/// in a single query (`SELECT journey_id, SUM(seats) AS seats ... GROUP BY journey_id`).
 /// Journeys without bookings are absent from the map.
 pub async fn booked_seats(
     db: &CachedDb,
@@ -30,6 +30,7 @@ pub async fn booked_seats(
         .column(booking::Column::JourneyId)
         .column_as(Expr::col(booking::Column::Seats).sum(), "seats")
         .filter(booking::Column::JourneyId.is_in(journey_ids.iter().copied()))
+        .filter(booking::Column::PaymentStatus.is_in([PaymentStatus::Paid, PaymentStatus::Pending]))
         .group_by(booking::Column::JourneyId)
         .into_tuple()
         .all(db)
@@ -37,6 +38,17 @@ pub async fn booked_seats(
 
     // Postgres returns SUM of an INTEGER column as BIGINT; seat totals fit in i32.
     Ok(totals.into_iter().map(|(id, seats)| (id, seats as i32)).collect())
+}
+
+pub async fn seats_taken(db: &CachedDb, journey_id: Uuid, except: Option<Uuid>) -> AppResult<i32> {
+    Ok(booking::Entity::find()
+        .filter(booking::Column::JourneyId.eq(journey_id))
+        .all(db)
+        .await?
+        .iter()
+        .filter(|b| Some(b.id) != except && b.holds_seats())
+        .map(|b| b.seats)
+        .sum())
 }
 
 // ============ Journey Passengers (same view for the driver and the admin) ============
@@ -70,13 +82,16 @@ pub async fn journey_passengers(
     let origin = cities.iter().find(|c| c.id == journey.origin_city_id);
     let dest = cities.iter().find(|c| c.id == journey.destination_city_id);
 
-    // Get all bookings for this journey
-    let bookings = booking::Entity::find()
+    // Get all bookings for this journey. Unpaid bookings aren't passengers.
+    let bookings: Vec<booking::Model> = booking::Entity::find()
         .filter(booking::Column::JourneyId.eq(journey.id))
         .order_by_asc(booking::Column::CreatedAt)
         .order_by_asc(booking::Column::Id)
         .all(db)
-        .await?;
+        .await?
+        .into_iter()
+        .filter(|b| b.is_paid())
+        .collect();
 
     // Get user info for each booking
     let users = user::Entity::find().all(db).await?;

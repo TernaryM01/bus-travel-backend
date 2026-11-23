@@ -102,7 +102,20 @@ It assumes:
   instances during redeploys, no manual edits with psql while it runs);
 - `timestamptz` entity fields use `DateTimeWithTimeZone`.
 
-Transactions: use `state.db.begin()` and `txn.commit()`.
+## Concurrent Requests
+
+Every write request (POST, PUT, DELETE) runs in one SERIALIZABLE database
+transaction (`src/db/request_txn.rs`). When it conflicts with a concurrent
+request (e.g. two travellers booking the last seat), Postgres aborts it and it is
+run again automatically. Handlers need no code for this: keep using `state.db`.
+GET requests get no transaction and are answered from the read cache.
+
+Keep in mind:
+- a write request may run more than once, so anything it does outside the
+  database must be safe to repeat;
+- an error response (4xx or 5xx) rolls back everything the request wrote;
+- GET handlers must not write to the database.
+
 
 ## Default Admin Account
 

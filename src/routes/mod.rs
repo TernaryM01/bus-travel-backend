@@ -4,6 +4,7 @@ use axum::{
 };
 
 use crate::AppState;
+use crate::db::transaction_per_request;
 use crate::error::AppError;
 use crate::handlers::{admin, auth, driver, traveller};
 use crate::middleware::auth::{auth_middleware, require_admin, require_driver, require_traveller};
@@ -103,6 +104,12 @@ pub fn create_router(state: AppState) -> Router {
         // instead of axum's default empty response.
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
+        // Each write request runs in one database transaction, and is run again
+        // if it conflicts with a concurrent request (see db::request_txn)
+        .layer(middleware::from_fn_with_state(
+            state.db.clone(),
+            transaction_per_request,
+        ))
         .with_state(state)
 }
 

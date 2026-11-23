@@ -61,7 +61,13 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
             AppError::Database(e) => {
-                tracing::error!("Database error: {:?}", e);
+                // A conflict with a concurrent request is not a fault: the request
+                // is run again (see db::request_txn)
+                if crate::db::request_txn::is_conflict(e) {
+                    tracing::debug!("Database conflict: {:?}", e);
+                } else {
+                    tracing::error!("Database error: {:?}", e);
+                }
                 (StatusCode::INTERNAL_SERVER_ERROR, "Terjadi kesalahan pada server".to_string())
             }
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),

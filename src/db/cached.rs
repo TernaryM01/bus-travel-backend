@@ -32,6 +32,9 @@
 //!   order. A result is only cached when that can't matter; see
 //!   `seaorm_compat::safe_to_cache`.
 //!
+//! Write requests (POST, PUT, DELETE, ...) each run in one transaction
+//! (`request_txn`); their queries skip the cache and invalidate it on commit.
+//!
 //! Layout: this file is the cache itself (table generations, invalidation,
 //! transactions). `classify` reads the SQL; `seaorm_compat` holds the SeaORM
 //! workarounds, which can go once SeaORM is fixed.
@@ -47,10 +50,11 @@ use std::sync::{Arc, Mutex};
 use moka::future::Cache;
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend, DbErr, ExecResult,
-    FromQueryResult, ProxyRow, QueryResult, Statement, TransactionTrait,
+    FromQueryResult, IsolationLevel, ProxyRow, QueryResult, Statement, TransactionTrait,
 };
 use sea_orm::sea_query::Value;
 
+use super::request_txn;
 use classify::{Kind, classify_sql};
 use seaorm_compat::{load_columns, safe_to_cache, to_cached_row};
 
@@ -185,9 +189,24 @@ impl CachedDb {
     /// Start a transaction. Reads inside it skip the cache; its writes invalidate
     /// when it commits. (CachedDb deliberately does not implement TransactionTrait,
     /// so there is no way to get a raw, cache-blind transaction by accident.)
+    ///
+    /// Not needed in request handlers: every write request already runs in one
+    /// transaction (see `request_txn`), and a second one would be separate from it.
     pub async fn begin(&self) -> Result<CachedTxn, DbErr> {
         Ok(CachedTxn {
             txn: self.inner.begin().await?,
+            db: self.clone(),
+            touched: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// Start a SERIALIZABLE transaction: the one each write request runs in.
+    pub(crate) async fn begin_serializable(&self) -> Result<CachedTxn, DbErr> {
+        Ok(CachedTxn {
+            txn: self
+                .inner
+                .begin_with_config(Some(IsolationLevel::Serializable), None)
+                .await?,
             db: self.clone(),
             touched: Mutex::new(Vec::new()),
         })
@@ -268,7 +287,21 @@ impl ConnectionTrait for CachedDb {
         self.inner.get_database_backend()
     }
 
+    // Each method below starts with
+    // `if let Some(txn) = request_txn::current_write_request()`.
+    // That check decides which of two paths the query takes:
+    // - `Some`: the query comes from a write request (POST, PUT, DELETE, ...).
+    //   It runs in that request's transaction (see `request_txn`), skips the
+    //   cache, and the cache is invalidated when the transaction commits.
+    // - `None`: the query comes from anywhere else (GET requests, startup code).
+    //   The rest of the method runs: a read is answered from the cache when
+    //   possible, and a write is saved on its own and invalidates the cache
+    //   right away.
+
     async fn execute(&self, stmt: Statement) -> Result<ExecResult, DbErr> {
+        if let Some(txn) = request_txn::current_write_request() {
+            return txn.track(txn.inner().execute(stmt).await);
+        }
         let tables = match self.classify(&stmt.sql).await {
             Kind::Write(t) => t,
             _ => Vec::new(), // a "read" sent through execute: be conservative
@@ -279,12 +312,18 @@ impl ConnectionTrait for CachedDb {
     }
 
     async fn execute_unprepared(&self, sql: &str) -> Result<ExecResult, DbErr> {
+        if let Some(txn) = request_txn::current_write_request() {
+            return txn.track(txn.inner().execute_unprepared(sql).await);
+        }
         let out = self.inner.execute_unprepared(sql).await;
         self.bump(&[]);
         out
     }
 
     async fn query_one(&self, stmt: Statement) -> Result<Option<QueryResult>, DbErr> {
+        if let Some(txn) = request_txn::current_write_request() {
+            return txn.track(txn.inner().query_one(stmt).await);
+        }
         match self.classify(&stmt.sql).await {
             Kind::Read(tables) => {
                 let inner = &self.inner;
@@ -310,6 +349,9 @@ impl ConnectionTrait for CachedDb {
     }
 
     async fn query_all(&self, stmt: Statement) -> Result<Vec<QueryResult>, DbErr> {
+        if let Some(txn) = request_txn::current_write_request() {
+            return txn.track(txn.inner().query_all(stmt).await);
+        }
         match self.classify(&stmt.sql).await {
             Kind::Read(tables) => {
                 let inner = &self.inner;

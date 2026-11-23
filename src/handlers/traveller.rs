@@ -1,5 +1,5 @@
 use axum::{extract::State, http::StatusCode, Extension};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -38,6 +38,9 @@ pub struct CityInfo {
     pub station_lng: f64,
 }
 
+/// Bookings close this long before departure
+pub const BOOKING_CUTOFF: Duration = Duration::hours(5);
+
 /// List available journeys for booking
 pub async fn list_journeys(
     State(state): State<AppState>,
@@ -51,9 +54,9 @@ pub async fn list_journeys(
         .all(&state.db)
         .await?
         .into_iter()
-        // Skip past journeys, and journeys whose pickup has started
+        // Skip past journeys, and journeys too close to departure or whose pickup has started
         // (they no longer take bookings)
-        .filter(|j| j.departure_time.with_timezone(&Utc) >= now)
+        .filter(|j| j.departure_time.with_timezone(&Utc) > now + BOOKING_CUTOFF)
         .filter(|j| j.status == JourneyStatus::Scheduled)
         .collect();
     let cities = city::Entity::find().all(&state.db).await?;
@@ -202,9 +205,11 @@ pub async fn create_booking(
         .await?
         .ok_or_else(|| AppError::NotFound("Perjalanan tidak ditemukan".to_string()))?;
 
-    // Check journey is in the future
-    if journey.departure_time.with_timezone(&Utc) < now {
-        return Err(AppError::BadRequest("Perjalanan yang sudah lewat tidak dapat dipesan".to_string()));
+    if booking_closed(&journey) {
+        return Err(AppError::BadRequest(format!(
+            "Pemesanan ditutup {} jam sebelum keberangkatan",
+            BOOKING_CUTOFF.num_hours()
+        )));
     }
 
     // Bookings close once the driver starts picking up passengers

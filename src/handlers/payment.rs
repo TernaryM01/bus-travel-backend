@@ -19,6 +19,7 @@ use crate::entities::{city, user};
 use crate::error::{AppError, AppResult};
 use crate::extract::{Json, Path};
 use crate::handlers::shared;
+use crate::handlers::traveller::booking_closed;
 use crate::midtrans::{NewTransaction, Outcome, PageCancel, TransactionStatus};
 use crate::utils::jwt::Claims;
 use crate::AppState;
@@ -300,7 +301,7 @@ pub async fn pay_booking(
         .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("Perjalanan tidak ditemukan".to_string()))?;
-    if journey.departure_time.with_timezone(&Utc) < now || journey.status != JourneyStatus::Scheduled {
+    if booking_closed(&journey) || journey.status != JourneyStatus::Scheduled {
         return Err(AppError::Conflict(
             "Perjalanan ini sudah tidak menerima pemesanan".to_string(),
         ));

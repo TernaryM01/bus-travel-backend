@@ -265,7 +265,7 @@ POST /api/auth/google
 
 ### List Available Journeys
 
-Returns journeys that haven't departed yet and whose status is still `Scheduled`, including full ones (`available_seats: 0`).
+Returns journeys that still take bookings (more than 5 hours before departure, status still `Scheduled`), including full ones (`available_seats: 0`).
 Seats held by bookings that are still waiting for payment don't count as available.
 
 ```
@@ -366,7 +366,7 @@ the new one (same booking `id`).
 - `400 Bad Request`:
   - Fewer than 1 seat
   - Not enough seats available
-  - Past journey
+  - Less than 5 hours before departure
   - Pickup point outside allowed radius
 - `404 Not Found`: Journey not found
 - `409 Conflict`:
@@ -428,7 +428,7 @@ POST /api/bookings/{id}/pay
 - `409 Conflict`:
   - Already paid
   - Past the deadline and Midtrans hasn't given a final answer yet
-  - Journey no longer takes bookings (departed, or pickup has started)
+  - Journey no longer takes bookings (less than 5 hours before departure, or pickup has started)
   - The seats were taken by someone else in the meantime
 - `502 Bad Gateway`: Midtrans couldn't be reached
 

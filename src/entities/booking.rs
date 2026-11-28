@@ -25,7 +25,7 @@ pub enum PaymentStatus {
     /// Declined, cancelled or errored at Midtrans
     #[sea_orm(string_value = "rejected")]
     Rejected,
-    /// Still pending when pickup started; whether it was paid is unknown
+    /// Still pending when pickup started or the scheduled departure time passed; whether it was paid is unknown
     #[sea_orm(string_value = "failed")]
     Failed,
     /// Cancelled by the traveller before paying

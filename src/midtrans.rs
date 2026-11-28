@@ -308,6 +308,9 @@ impl Midtrans {
             Ok(PageCancel::Closed)
         } else if messages.iter().any(|m| m.eq_ignore_ascii_case("Transaction is on progress")) {
             Ok(PageCancel::TransactionInProgress)
+        } else if messages.iter().any(|m| m.to_ascii_lowercase().starts_with("expiry must be greater than")) {
+            // The page's own expiry has passed, so it can't start a payment anymore
+            Ok(PageCancel::Closed)
         } else {
             tracing::error!("Midtrans Snap cancel returned {status}: {text}");
             Err(gateway_unavailable())

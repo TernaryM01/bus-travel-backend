@@ -3,7 +3,9 @@
 //!
 //! Seats are released only after Midtrans confirms no money can arrive anymore:
 //! at the deadline (a timer per booking) or when the traveller cancels, the
-//! payment is stopped at Midtrans, or found to be already paid.
+//! payment is stopped at Midtrans, or found to be already paid. If Midtrans
+//! still hasn't answered when pickup starts or the scheduled departure time
+//! passes, the booking becomes Failed.
 
 use axum::{extract::State, http::StatusCode, Extension};
 use chrono::{DateTime, Duration, FixedOffset, Utc};
@@ -243,8 +245,20 @@ async fn close_at_deadline(state: &AppState, booking_id: Uuid, order_id: &str) -
     if booking.payment_status != PaymentStatus::Pending || booking.payment_order_id.as_deref() != Some(order_id) {
         return Ok(());
     }
-    let answer = stop_payment(state, &booking, PaymentStatus::Expired).await?;
-    record(state, &booking, answer).await
+    match stop_payment(state, &booking, PaymentStatus::Expired).await {
+        Ok(answer) => record(state, &booking, answer).await,
+        Err(e) => {
+            let journey = journey::Entity::find_by_id(booking.journey_id).one(&state.db).await?;
+            if journey.is_some_and(|j| j.departure_time.with_timezone(&Utc) > Utc::now()) {
+                return Err(e);
+            }
+            // Same as when pickup starts: stop retrying, leave a late payment to an admin
+            tracing::error!(
+                "Payment of booking {booking_id} still unconfirmed after scheduled departure time, marked failed: {e}"
+            );
+            record(state, &booking, Final::Closed(PaymentStatus::Failed)).await
+        }
+    }
 }
 
 /// On startup: timers for every booking still waiting for payment.
